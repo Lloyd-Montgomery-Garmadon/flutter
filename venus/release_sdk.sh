@@ -34,4 +34,6 @@ if [[ "$has_manifest" == false ]]; then
     "$flutter_root/docs/venus/source.json")
   args+=(--manifest "$venus_root/scripts/flutter_sdk/releases/$tag/manifest.json")
 fi
+# Protect the checkout containing this generated entry during cleanup.
+if [[ "${args[0]}" == clean ]]; then args+=(--flutter-root "$flutter_root"); fi
 exec bash "$entry" "${args[@]}"
