@@ -16,11 +16,10 @@ SDK 和压缩包输出到配置目录的 `sdk/`。
 
 ## 设置 Flutter 环境变量
 
-仍在本目录执行（Bash/Zsh）。下面相对路径对应同级的 `flutter-sdk-release`
-发布目录；如果改了输出目录，把路径替换为实际的 `sdk/flutter`：
+打包完成后，在打包结果的 `sdk/flutter/venus` 目录执行（Bash/Zsh）：
 
 ```bash
-export FLUTTER_ROOT="$(cd ../../flutter-sdk-release/sdk/flutter && pwd -P)"
+export FLUTTER_ROOT="$(cd ../../../sdk/flutter && pwd -P)"
 export PATH="$FLUTTER_ROOT/bin:$PATH"
 hash -r
 which flutter
