@@ -19,6 +19,7 @@ TextStyle ParagraphStyle::GetTextStyle() const {
   result.locale = locale;
   result.height = height;
   result.has_height_override = has_height_override;
+  result.half_leading = half_leading;
   return result;
 }
 

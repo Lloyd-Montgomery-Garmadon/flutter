@@ -1104,6 +1104,8 @@ class Engine final : public RuntimeDelegate, PointerDataDispatcher::Delegate {
   std::string last_entry_point_library_;
   std::vector<std::string> last_entry_point_args_;
   std::optional<int64_t> last_engine_id_;
+  uint64_t venus_text_layout_engine_id_ = 0u;
+  uint64_t venus_text_layout_registration_generation_ = 0u;
   std::string initial_route_;
   std::shared_ptr<AssetManager> asset_manager_;
   std::shared_ptr<FontCollection> font_collection_;

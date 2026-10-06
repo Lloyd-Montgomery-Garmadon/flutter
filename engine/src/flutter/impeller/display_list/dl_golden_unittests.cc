@@ -4,8 +4,12 @@
 
 #include "impeller/display_list/dl_golden_unittests.h"
 
+#include <cmath>
+#include <utility>
+
 #include "display_list/dl_color.h"
 #include "display_list/dl_paint.h"
+#include "display_list/effects/dl_color_source.h"
 #include "display_list/geometry/dl_geometry_types.h"
 #include "display_list/geometry/dl_path_builder.h"
 #include "flutter/display_list/dl_builder.h"
@@ -40,6 +44,114 @@ TEST_P(DlGoldenTest, CanDrawPaint) {
 
   ASSERT_TRUE(OpenPlaygroundHere(builder.Build()));
 }
+
+#ifdef IMPELLER_GOLDEN_TESTS
+TEST_P(DlGoldenTest, LinearGradientHardStopAtPixelCenter) {
+  SetWindowSize(impeller::ISize(80, 250));
+
+  // The shader covers a 50px rect, but its line extends to 170px. At x=25,
+  // the pixel center lands exactly on the duplicated stop at local x=12.5.
+  const float hard_stop = std::nextafterf(12.5f / 170.0f, 0.0f);
+  const DlColor colors[] = {DlColor::kRed(), DlColor::kRed(),
+                            DlColor::kBlue(), DlColor::kBlue()};
+  const float stops[] = {0.0f, hard_stop, hard_stop, 1.0f};
+  DisplayListBuilder builder;
+  builder.Translate(13, 13);
+  DlPaint paint;
+  paint.setColorSource(DlColorSource::MakeLinear(
+      {0, 0}, {170, 0}, 4, colors, stops, DlTileMode::kClamp));
+  builder.DrawRect(DlRect::MakeXYWH(0, 0, 50, 200), paint);
+
+  // Keep the final interval closed: a duplicated stop at t=1 selects blue.
+  const DlColor end_colors[] = {DlColor::kRed(), DlColor::kRed(),
+                                DlColor::kBlue()};
+  const float end_stops[] = {0.0f, 1.0f, 1.0f};
+  paint.setColorSource(DlColorSource::MakeLinear(
+      {-3.5f, 0}, {12.5f, 0}, 3, end_colors, end_stops, DlTileMode::kClamp));
+  builder.DrawRect(DlRect::MakeXYWH(0, 210, 50, 20), paint);
+
+  auto screenshot = MakeScreenshot(builder.Build());
+  if (!screenshot) {
+    GTEST_SKIP() << "Screenshot readback is unavailable";
+  }
+  const auto* row = screenshot->GetBytes() + 20 * screenshot->GetBytesPerRow();
+  auto color_difference = [row](int a, int b) {
+    int difference = 0;
+    for (int channel = 0; channel < 4; ++channel) {
+      difference += std::abs(static_cast<int>(row[a * 4 + channel]) -
+                             static_cast<int>(row[b * 4 + channel]));
+    }
+    return difference;
+  };
+  ASSERT_GT(color_difference(24, 26), 300);
+  EXPECT_LT(color_difference(25, 26), 8);
+  // The lower triangle must evaluate the same x coordinate identically.
+  const auto* lower_row =
+      screenshot->GetBytes() + 190 * screenshot->GetBytesPerRow();
+  for (int x : {24, 25, 26}) {
+    for (int channel = 0; channel < 4; ++channel) {
+      EXPECT_LT(std::abs(static_cast<int>(lower_row[x * 4 + channel]) -
+                         static_cast<int>(row[x * 4 + channel])),
+                8);
+    }
+  }
+  const auto* end_row =
+      screenshot->GetBytes() + 230 * screenshot->GetBytesPerRow();
+  ASSERT_GT(std::abs(static_cast<int>(end_row[24 * 4]) -
+                     static_cast<int>(end_row[25 * 4])),
+            100);
+  for (int channel = 0; channel < 4; ++channel) {
+    EXPECT_LT(std::abs(static_cast<int>(end_row[25 * 4 + channel]) -
+                       static_cast<int>(end_row[26 * 4 + channel])),
+              8);
+  }
+}
+
+TEST_P(DlGoldenTest, LinearGradientProjectionPreservesTileModes) {
+  SetWindowSize(impeller::ISize(80, 140));
+  DisplayListBuilder builder;
+  DlPaint paint;
+  paint.setColor(DlColor::kWhite());
+  builder.DrawRect(DlRect::MakeXYWH(0, 0, 80, 140), paint);
+  builder.Translate(13, 13);
+
+  const DlColor hard_stop_colors[] = {DlColor::kRed(), DlColor::kRed(),
+                                       DlColor::kBlue(), DlColor::kBlue()};
+  const float hard_stops[] = {0.0f, 0.5f, 0.5f, 1.0f};
+  const DlTileMode modes[] = {DlTileMode::kClamp, DlTileMode::kRepeat,
+                              DlTileMode::kMirror, DlTileMode::kDecal};
+  for (int index = 0; index < 4; ++index) {
+    const DlPoint end = index == 0 ? DlPoint(0, 0) : DlPoint(20, 0);
+    paint.setColorSource(DlColorSource::MakeLinear(
+        {0, 0}, end, 4, hard_stop_colors, hard_stops, modes[index]));
+    builder.DrawRect(DlRect::MakeXYWH(0, index * 25, 50, 20), paint);
+  }
+  paint.setColorSource(nullptr);
+  paint.setColor(DlColor::kRed());
+  builder.DrawRect(DlRect::MakeXYWH(0, 110, 50, 20), paint);
+
+  auto screenshot = MakeScreenshot(builder.Build());
+  if (!screenshot) {
+    GTEST_SKIP() << "Screenshot readback is unavailable";
+  }
+  auto color_difference = [&screenshot](int x1, int y1, int x2, int y2) {
+    const auto* bytes = screenshot->GetBytes();
+    const int stride = screenshot->GetBytesPerRow();
+    int difference = 0;
+    for (int channel = 0; channel < 4; ++channel) {
+      difference += std::abs(
+          static_cast<int>(bytes[y1 * stride + x1 * 4 + channel]) -
+          static_cast<int>(bytes[y2 * stride + x2 * 4 + channel]));
+    }
+    return difference;
+  };
+  EXPECT_LT(color_difference(25, 20, 25, 125), 8);  // Zero-length clamp.
+  EXPECT_LT(color_difference(18, 45, 38, 45), 8);  // Repeat period.
+  EXPECT_LT(color_difference(18, 70, 47, 70), 8);  // Mirror period.
+  EXPECT_LT(color_difference(38, 95, 70, 95), 8);  // Decal exterior.
+  EXPECT_GT(color_difference(18, 95, 70, 95), 100);
+}
+#endif
 
 TEST_P(DlGoldenTest, CanRenderImage) {
   auto draw = [](DlCanvas* canvas, const std::vector<sk_sp<DlImage>>& images) {

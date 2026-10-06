@@ -16,6 +16,7 @@
 #include "flutter/impeller/core/runtime_types.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/shell/common/animator.h"
+#include "flutter/shell/common/venus_text_layout_registry.h"
 #include "rapidjson/document.h"
 
 namespace flutter {
@@ -148,7 +149,14 @@ std::unique_ptr<Engine> Engine::Spawn(
   return result;
 }
 
-Engine::~Engine() = default;
+Engine::~Engine() {
+  if (venus_text_layout_engine_id_ != 0u &&
+      venus_text_layout_registration_generation_ != 0u) {
+    VenusTextLayoutRegistry::Unregister(
+        venus_text_layout_engine_id_,
+        venus_text_layout_registration_generation_);
+  }
+}
 
 fml::TaskRunnerAffineWeakPtr<Engine> Engine::GetWeakPtr() const {
   return weak_factory_.GetWeakPtr();
@@ -209,6 +217,14 @@ bool Engine::Restart(RunConfiguration configuration) {
     return false;
   }
   delegate_.OnPreEngineRestart();
+  if (venus_text_layout_engine_id_ != 0u &&
+      venus_text_layout_registration_generation_ != 0u) {
+    VenusTextLayoutRegistry::Unregister(
+        venus_text_layout_engine_id_,
+        venus_text_layout_registration_generation_);
+    venus_text_layout_engine_id_ = 0u;
+    venus_text_layout_registration_generation_ = 0u;
+  }
   runtime_controller_ = runtime_controller_->Clone();
   UpdateAssetManager(nullptr);
   return Run(std::move(configuration)) == Engine::RunStatus::Success;
@@ -233,6 +249,18 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
 
   if (runtime_controller_->IsRootIsolateRunning()) {
     return RunStatus::FailureAlreadyRunning;
+  }
+
+  if (last_engine_id_.has_value() && last_engine_id_.value() > 0) {
+    venus_text_layout_registration_generation_ =
+        VenusTextLayoutRegistry::Register(
+            static_cast<uint64_t>(last_engine_id_.value()), font_collection_,
+            settings_.enable_impeller);
+    if (venus_text_layout_registration_generation_ == 0u) {
+      return RunStatus::Failure;
+    }
+    venus_text_layout_engine_id_ =
+        static_cast<uint64_t>(last_engine_id_.value());
   }
 
   // If the embedding prefetched the default font manager, then set up the
@@ -267,6 +295,14 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
           native_assets_manager_,                    //
           configuration.GetEngineId()))              //
   {
+    if (venus_text_layout_engine_id_ != 0u &&
+        venus_text_layout_registration_generation_ != 0u) {
+      VenusTextLayoutRegistry::Unregister(
+          venus_text_layout_engine_id_,
+          venus_text_layout_registration_generation_);
+      venus_text_layout_engine_id_ = 0u;
+      venus_text_layout_registration_generation_ = 0u;
+    }
     return RunStatus::Failure;
   }
 

@@ -63,6 +63,7 @@ class ParagraphStyle {
   double font_size = 14;
   double height = 1;
   bool has_height_override = false;
+  bool half_leading = false;
   size_t text_height_behavior = TextHeightBehavior::kAll;
 
   // Strut properties. strut_enabled must be set to true for the rest of the
@@ -79,6 +80,11 @@ class ParagraphStyle {
   double strut_leading = -1;  // Negative to use font's default leading. [0,inf)
                               // to use custom leading as a ratio of font size.
   bool force_strut_height = false;
+
+  // venus (CSS `line-height: 0`): a text style with has_height_override and
+  // height 0 is an authored zero line height, not "unset". Off by default so
+  // every Flutter paragraph keeps "height 0 = font metrics".
+  bool honor_zero_height_override = false;
 
   // General paragraph properties.
   TextAlign text_align = TextAlign::start;

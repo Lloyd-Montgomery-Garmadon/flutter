@@ -163,6 +163,15 @@ source_set("ui") {
     "window/viewport_metrics.h",
   ]
 
+  sources += [
+    "text/venus_text_layout_batch_oracle.cc",
+    "text/venus_text_layout_batch_oracle.h",
+    "text/venus_text_layout_node_core.cc",
+    "text/venus_text_layout_node_core.h",
+    "text/venus_text_layout_paragraph_store.cc",
+    "text/venus_text_layout_paragraph_store.h",
+  ]
+
   public_configs = [ "//flutter:config" ]
 
   public_deps = [
@@ -185,8 +194,10 @@ source_set("ui") {
     "//flutter/runtime:dart_plugin_registrant",
     "//flutter/runtime:test_font",
     "//flutter/skia",
+    "//flutter/third_party/boringssl",
     "//flutter/third_party/rapidjson",
     "//flutter/third_party/tonic",
+    "//third_party/abseil-cpp/absl/container:flat_hash_set",
     "//third_party/abseil-cpp/absl/status:statusor",
     "//third_party/zlib",
   ]
@@ -282,6 +293,13 @@ if (enable_unittests) {
       "window/pointer_data_packet_unittests.cc",
     ]
 
+    if (flutter_runtime_mode == "debug") {
+      sources += [
+        "text/venus_text_layout_batch_oracle_unittests.cc",
+        "text/venus_text_layout_service_unittests.cc",
+      ]
+    }
+
     deps = [
       ":display_list_deferred_image_unittests",
       ":ui",
@@ -293,6 +311,7 @@ if (enable_unittests) {
       "//flutter/impeller/renderer/testing:mocks",
       "//flutter/lib/snapshot",
       "//flutter/shell/common:shell_test_fixture_sources",
+      "//flutter/shell/platform/common:common_cpp_library_headers",
       "//flutter/testing",
       "//flutter/testing:dart",
       "//flutter/testing:fixture_test",

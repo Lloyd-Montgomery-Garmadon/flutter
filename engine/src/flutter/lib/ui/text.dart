@@ -3236,6 +3236,104 @@ base class _NativeParagraph extends NativeFieldWrapperClass1 implements Paragrap
   @Native<Void Function(Pointer<Void>, Double)>(symbol: 'Paragraph::layout', isLeaf: true)
   external void _layout(double width);
 
+  /// Venus Phase 3 采用路径：给这个段落挂一个预排 token。
+  ///
+  /// 挂上之后，下一次 [layout] 会先去引擎的交付表里认领 —— 命中就直接换上
+  /// worker 线程提前排好的那份，**跳过 UI 线程上的 shaping**；未命中照常自己排。
+  ///
+  /// 对象仍然是这一个（Dart 造的、Dart GC 管的），换掉的只是它内部那份原生段落。
+  ///
+  /// token 是**一次性**的：认领即消费。`token = 0` 表示不参与采用路径。
+  ///
+  /// [fontEpoch] 必须是预排时那一代。字体重载之后旧段落引用的是已被换掉的字体表，
+  /// 代际对不上会判未命中而不是"凑合用"。
+  void setVenusPrelayoutToken(int token, int fontEpoch) {
+    _setVenusPrelayoutToken(token, fontEpoch);
+  }
+
+  @Native<Void Function(Pointer<Void>, Uint64, Uint64)>(
+    symbol: 'Paragraph::setVenusPrelayoutToken',
+    isLeaf: true,
+  )
+  external void _setVenusPrelayoutToken(int token, int fontEpoch);
+
+  /// Venus Phase 3：贴一张"这段文字我已经排好了"的条子在**当前线程**上，
+  /// 由下一次宽度相符的 [layout] 一次性取走。
+  ///
+  /// 存在的理由：Venus 的文本节点走 [TextPainter]，而它内部自己造段落对象 ——
+  /// 那个对象在私有类上够不到，正式 SDK 又钉死禁改。只能"贴在环境里让它自己来取"。
+  ///
+  /// ## 必须成对使用
+  ///
+  /// ```dart
+  /// final int note = Paragraph.postVenusPrelayoutNote(token, epoch, width);
+  /// try {
+  ///   painter.layout(maxWidth: width);
+  /// } finally {
+  ///   Paragraph.clearVenusPrelayoutNote(note);   // 命不命中都要撕
+  /// }
+  /// ```
+  ///
+  /// 不撕的后果不是"少省一点时间"，而是**条子留在线程上**：下一个文本节点
+  /// 宽度一旦撞上就会捡走它。[clearVenusPrelayoutNote] 只撕自己贴的那张
+  /// （版本号对不上说明已经被别人换掉了，不动）。
+  ///
+  /// ## [width] 必须有限
+  ///
+  /// [TextPainter] 内部有个只含一个空格的 layoutTemplate，恒以 `width: infinity`
+  /// 排版。宽度有限它就永远取不走这张条子；传 infinity 等于把那条路打开。
+  ///
+  /// 宽度按**位模式**（整数）比对，不是 double 比较 —— 没有 `-0.0` 判等、
+  /// 没有 NaN 不等于自己，也就没有"浮点比较写错了却看着像宽度在变"的误导。
+  ///
+  /// 返回这张条子的版本号，传给 [clearVenusPrelayoutNote]。
+  static int postVenusPrelayoutNote(int token, int fontEpoch, double width) {
+    assert(
+      token == 0 || width.isFinite,
+      '预排条子只能在宽度有限时贴：TextPainter 的 layoutTemplate 恒以 infinity '
+      '排版，宽度无限会让它取走这张条子，画出一个空格的排版。',
+    );
+    final int version = _venusAmbientNoteVersion() + 1;
+    _setVenusAmbientPrelayoutToken(
+      token,
+      fontEpoch,
+      _doubleBits(width),
+      version,
+    );
+    return version;
+  }
+
+  /// 撕掉 [postVenusPrelayoutNote] 贴的条子。版本号对不上就不动 ——
+  /// 那说明这张已经被别人换掉了，撕它等于撕别人的。
+  static void clearVenusPrelayoutNote(int version) {
+    if (_venusAmbientNoteVersion() != version) {
+      return;
+    }
+    _setVenusAmbientPrelayoutToken(0, 0, 0, version);
+  }
+
+  static int _doubleBits(double value) {
+    final buffer = ByteData(8);
+    buffer.setFloat64(0, value);
+    return buffer.getInt64(0);
+  }
+
+  @Native<Void Function(Uint64, Uint64, Uint64, Uint64)>(
+    symbol: 'Paragraph::SetVenusAmbientPrelayoutToken',
+    isLeaf: true,
+  )
+  external static void _setVenusAmbientPrelayoutToken(
+    int token,
+    int fontEpoch,
+    int widthBits,
+    int noteVersion,
+  );
+
+  @Native<Uint64 Function()>(
+    symbol: 'Paragraph::VenusAmbientNoteVersion',
+    isLeaf: true,
+  )
+  external static int _venusAmbientNoteVersion();
   List<TextBox> _decodeTextBoxes(Float32List encoded) {
     final int count = encoded.length ~/ 5;
     final boxes = <TextBox>[];
@@ -3794,6 +3892,22 @@ Future<void> loadFontFromList(Uint8List list, {String? fontFamily}) {
     return null;
   }).then((_) => _sendFontChangeMessage());
 }
+
+/// Runs the temporary Venus Phase 1 text-layout batch oracle in engine C++.
+///
+/// The request and result are candidate little-endian POD wire formats used
+/// only to verify a custom debug engine. They are not stable dart:ui API or a
+/// public Venus ABI.
+Uint8List debugMeasureTextBatchForVenusPhase1(Uint8List request) {
+  if (const bool.fromEnvironment('dart.vm.product') ||
+      const bool.fromEnvironment('dart.vm.profile')) {
+    throw UnsupportedError('The Venus Phase 1 text-layout oracle is debug-only.');
+  }
+  return _measureTextBatchForVenusPhase1(request);
+}
+
+@Native<Handle Function(Handle)>(symbol: 'VenusTextLayoutBatchOracle::Measure')
+external Uint8List _measureTextBatchForVenusPhase1(Uint8List request);
 
 final ByteData _fontChangeMessage = utf8
     .encode(json.encode(<String, Object?>{'type': 'fontsChange'}))

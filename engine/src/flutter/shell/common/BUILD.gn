@@ -125,6 +125,10 @@ source_set("common") {
     "switches.h",
     "thread_host.cc",
     "thread_host.h",
+    "venus_text_layout_registry.cc",
+    "venus_text_layout_registry.h",
+    "venus_text_layout_service.cc",
+    "venus_text_layout_service.h",
     "vsync_waiter.cc",
     "vsync_waiter.h",
     "vsync_waiter_fallback.cc",
@@ -137,6 +141,7 @@ source_set("common") {
     ":display",
     ":platform_message_handler",
     ":snapshot_pixel_format",
+    "//flutter/shell/platform/common:common_cpp_library_headers",
     "//flutter/shell/version",
     "//flutter/third_party/rapidjson",
     "//flutter/third_party/tonic",
@@ -213,6 +218,82 @@ if (enable_unittests) {
       "fixtures/hello_loop_2.gif",
       "//flutter/txt/third_party/fonts/Roboto-Regular.ttf",
     ]
+  }
+
+  # Focused V2 concurrency suite. It is a separate executable from ui_unittests
+  # because the §11 TSan gate needs a binary small enough to reach gtest main
+  # under the thread sanitizer; ui_unittests crashes in __tsan::SlotLock before
+  # main. Do not fold these cases back into ui_unittests.
+  shell_host_executable("venus_text_layout_v2_tsan_tests") {
+    sources = [ "venus_text_layout_v2_tsan_tests.cc" ]
+
+    # Deliberately NOT depending on //flutter/testing: its run_all_unittests
+    # main pulls the fixture machinery (GetFixturesPath) that this suite has no
+    # use for, and the point of this target is to stay small enough to reach
+    # gtest main under TSan. The main below is the whole harness.
+    deps = [
+      "//flutter/lib/ui",
+      "//flutter/third_party/googletest:gtest",
+    ]
+  }
+
+  # §8 P4 的生命周期矩阵：关停竞态 / worker 重配 / font reload 重建 /
+  # drain-then-exit / INV-SLOT / 生产方向唤醒 / token 状态机。每条带 30s 守护。
+  shell_host_executable("venus_text_layout_v2_lifecycle_tests") {
+    sources = [ "venus_text_layout_v2_lifecycle_tests.cc" ]
+
+    deps = [
+      "//flutter/lib/ui",
+      "//flutter/third_party/googletest:gtest",
+    ]
+  }
+
+  # P3-1 出口：交付表本身。两件事 —— 采用路径与自排路径逐 bit 相同；
+  # §三 每一条未命中分类都真的会红（全是 0 的计数器等于没有计数器）。
+  shell_host_executable("venus_text_layout_p3_store_tests") {
+    sources = [ "venus_text_layout_p3_store_tests.cc" ]
+
+    deps = [
+      ":shell_unittests_fixtures",
+      "//flutter/lib/ui",
+      "//flutter/testing:testing_lib",
+      "//flutter/third_party/googletest:gtest",
+    ]
+  }
+
+  # Phase 3 可行性验证：txt::Paragraph 跨线程交接。Phase 2 的 core 已经在
+  # Build+Layout 真正的 txt::Paragraph 然后把它扔掉；Phase 3 的全部想法是别扔，
+  # 让 UI 线程只做一次指针移动。整条路卡在"A 线程排好的 paragraph 能不能在
+  # B 线程读几何量与 Paint" —— 这个目标就是来证死或证活它的。
+  shell_host_executable("venus_text_layout_p3_paragraph_handoff_tests") {
+    sources = [ "venus_text_layout_p3_paragraph_handoff_tests.cc" ]
+
+    # 与同目录其它 venus 目标同款依赖: skia / txt 由 //flutter/lib/ui 传递提供。
+    # 显式写 //flutter/third_party/skia 会把 gn 的解析链带到 third_party/expat,
+    # 在这个 checkout 里解析不到。
+    deps = [
+      "//flutter/lib/ui",
+      "//flutter/third_party/googletest:gtest",
+    ]
+  }
+
+  # §8 P3 的 core 唯一守卫：blob 路 (Phase 1 oracle) vs native 路 (V2 sync adapter)
+  # 逐 bit 对拍，外加逐项 fail-closed 矩阵。独立可执行文件，自带 gtest main。
+  shell_host_executable("venus_text_layout_v2_parity_tests") {
+    sources = [ "venus_text_layout_v2_parity_tests.cc" ]
+
+    deps = [
+      "//flutter/lib/ui",
+      "//flutter/third_party/googletest:gtest",
+    ]
+  }
+
+  # Million-call stress driver. --deadline-seconds is what turns the
+  # hang-shaped regressions into a non-zero exit with a counters dump.
+  shell_host_executable("venus_text_layout_v2_stress") {
+    sources = [ "venus_text_layout_v2_stress.cc" ]
+
+    deps = [ "//flutter/lib/ui" ]
   }
 
   shell_host_executable("shell_benchmarks") {

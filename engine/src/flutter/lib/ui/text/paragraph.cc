@@ -4,6 +4,10 @@
 
 #include "flutter/lib/ui/text/paragraph.h"
 
+#include <cstring>
+
+#include "flutter/lib/ui/text/venus_text_layout_paragraph_store.h"
+
 #include "flutter/common/settings.h"
 #include "flutter/common/task_runners.h"
 #include "flutter/fml/logging.h"
@@ -58,7 +62,56 @@ bool Paragraph::didExceedMaxLines() {
   return m_paragraph_->DidExceedMaxLines();
 }
 
+void Paragraph::SetVenusAmbientPrelayoutToken(uint64_t token,
+                                              uint64_t font_epoch,
+                                              uint64_t width_bits,
+                                              uint64_t note_version) {
+  // token == 0 是"撕条子"的意思；撕只撕自己贴的那张。
+  if (token == 0u) {
+    venus_text_layout::AmbientPrelayoutNote::Clear(note_version);
+    return;
+  }
+  venus_text_layout::AmbientPrelayoutNote::Post(token, font_epoch, width_bits,
+                                                note_version);
+}
+
+uint64_t Paragraph::VenusAmbientNoteVersion() {
+  return venus_text_layout::AmbientPrelayoutNote::Version();
+}
+
+void Paragraph::setVenusPrelayoutToken(uint64_t token, uint64_t font_epoch) {
+  venus_prelayout_token_ = token;
+  venus_font_epoch_ = font_epoch;
+}
+
 void Paragraph::layout(double width) {
+  // Phase 3 采用路径。挂了 token 就先去交付表认领 —— worker 线程可能已经把这段
+  // 文字在这个宽度下排好了。命中则直接换上那份，**UI 线程上的 shaping 归零**。
+  //
+  // 未命中是常态(文字变了 / 宽度变了 / 没人提前排 / slot 还没交还)，一律回退到
+  // 自己排。分类计数在交付表里，因为静默回退等于没做这个 Feature。
+  uint64_t token = venus_prelayout_token_;
+  uint64_t epoch = venus_font_epoch_;
+  if (token == 0u) {
+    // 环境条子：宽度位模式相符才给，取走即失效。判据与失效逻辑都在
+    // AmbientPrelayoutNote 里 —— 抽出去是为了能单测到，埋在这里就测不着了。
+    uint64_t width_bits = 0u;
+    std::memcpy(&width_bits, &width, sizeof(width_bits));
+    venus_text_layout::AmbientPrelayoutNote::TryTake(width_bits, &token, &epoch);
+  }
+  if (token != 0u) {
+    std::unique_ptr<txt::Paragraph> claimed =
+        venus_text_layout::ParagraphStore::Instance().Claim(token, width, epoch);
+    if (claimed != nullptr) {
+      // 换掉内部那份即可。外层这个 flutter::Paragraph 仍是 Dart 造的那一个，
+      // 生命周期不变 —— 没有任何对象跨边界。
+      m_paragraph_ = std::move(claimed);
+      // token 是一次性的：认领即消费。不清掉的话，下一帧换了宽度会拿同一个
+      // token 再查一次，把 miss 计数污染成"宽度老在变"。
+      venus_prelayout_token_ = 0u;
+      return;
+    }
+  }
   m_paragraph_->Layout(width);
 }
 

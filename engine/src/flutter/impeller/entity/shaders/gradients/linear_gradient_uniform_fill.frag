@@ -29,13 +29,27 @@ out vec4 frag_color;
 
 void main() {
   highp vec2 start_to_position = v_position - frag_info.start_point;
-  highp float t = dot(start_to_position, frag_info.start_to_end) *
+  highp float projected_position =
+      dot(start_to_position, frag_info.start_to_end);
+  highp float gradient_length_squared =
+      dot(frag_info.start_to_end, frag_info.start_to_end);
+  highp float t = projected_position *
                   frag_info.inverse_dot_start_to_end;
 
   if ((t < 0.0 || t > 1.0) && frag_info.tile_mode == kTileModeDecal) {
     frag_color = frag_info.decal_border_color;
   } else {
     t = IPFloatTile(t, frag_info.tile_mode);
+    // Compare clamp stops before normalization so rounding in the reciprocal
+    // does not move a hard stop across a pixel on one triangle of a quad.
+    bool compare_projected =
+        frag_info.tile_mode == kTileModeClamp && gradient_length_squared != 0.0;
+    highp float comparison_scale =
+        compare_projected ? gradient_length_squared : 1.0;
+    highp float comparison_position = compare_projected
+                                          ? clamp(projected_position, 0.0,
+                                                  gradient_length_squared)
+                                          : t;
 
     vec2 prev_stop = frag_info.stop_pairs[0].xy;
     bool even = false;
@@ -47,8 +61,11 @@ void main() {
       even = !even;
       // stop.x == t value
       // stop.y == inverse_delta to next stop
-      if (t >= prev_stop.x && t <= cur_stop.x) {
-        if (cur_stop.y > 1000.0) {
+      if (comparison_position >= prev_stop.x * comparison_scale &&
+          (comparison_position < cur_stop.x * comparison_scale ||
+           (i == frag_info.colors_length - 1 &&
+             comparison_position <= cur_stop.x * comparison_scale))) {
+        if (prev_stop.x == cur_stop.x || cur_stop.y > 1000.0) {
           frag_color = frag_info.colors[i];
         } else {
           float ratio = (t - prev_stop.x) * cur_stop.y;

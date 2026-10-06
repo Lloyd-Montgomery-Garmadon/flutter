@@ -51,6 +51,9 @@ bool TextStyle::equals(const TextStyle& other) const {
   if (half_leading != other.half_leading) {
     return false;
   }
+  if (baseline_shift != other.baseline_shift) {
+    return false;
+  }
   if (locale != other.locale) {
     return false;
   }

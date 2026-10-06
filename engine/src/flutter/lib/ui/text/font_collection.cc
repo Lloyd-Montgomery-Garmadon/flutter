@@ -4,12 +4,14 @@
 
 #include "flutter/lib/ui/text/font_collection.h"
 
+#include <cstring>
 #include <mutex>
 
 #include "flutter/lib/ui/text/asset_manager_font_provider.h"
 #include "flutter/lib/ui/ui_dart_state.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/runtime/test_font_data.h"
+#include "openssl/sha.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
@@ -45,6 +47,26 @@ std::shared_ptr<txt::FontCollection> FontCollection::GetFontCollection() const {
   return collection_;
 }
 
+uint64_t FontCollection::GetVenusFontEpoch() const {
+  return collection_->GetVenusFontEpoch();
+}
+
+bool FontCollection::GetVenusFontFingerprint(const std::string& family_name,
+                                             uint64_t expected_font_epoch,
+                                             uint8_t out_sha256[32]) const {
+  if (out_sha256 == nullptr) {
+    return false;
+  }
+  std::scoped_lock lock(venus_fingerprint_mutex_);
+  if (!venus_fingerprint_valid_ || family_name != venus_fingerprint_family_ ||
+      expected_font_epoch != venus_fingerprint_epoch_) {
+    return false;
+  }
+  std::memcpy(out_sha256, venus_fingerprint_sha256_.data(),
+              venus_fingerprint_sha256_.size());
+  return true;
+}
+
 void FontCollection::SetupDefaultFontManager(
     uint32_t font_initialization_data) {
   collection_->SetupDefaultFontManager(font_initialization_data);
@@ -69,7 +91,11 @@ void FontCollection::SetupDefaultFontManager(
 void FontCollection::RegisterFonts(
     const std::shared_ptr<AssetManager>& asset_manager) {
 #if FML_OS_MACOSX || FML_OS_IOS
-  RegisterSystemFonts(*dynamic_font_manager_);
+  {
+    auto mutation_lease = collection_->AcquireVenusFontMutationLease();
+    RegisterSystemFonts(*dynamic_font_manager_);
+    collection_->ClearFontFamilyCacheWithVenusLease(mutation_lease);
+  }
 #endif
   std::unique_ptr<fml::Mapping> manifest_mapping =
       asset_manager->GetAsMapping("FontManifest.json");
@@ -158,18 +184,37 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
                                         ->client()
                                         ->GetFontCollection();
 
+  std::array<uint8_t, SHA256_DIGEST_LENGTH> digest = {};
+  SHA256(font_data.data(), static_cast<size_t>(font_data.num_elements()),
+         digest.data());
+
   std::unique_ptr<SkStreamAsset> font_stream = std::make_unique<SkMemoryStream>(
       font_data.data(), font_data.num_elements(), true);
   sk_sp<SkFontMgr> font_mgr = txt::GetDefaultFontManager();
   sk_sp<SkTypeface> typeface = font_mgr->makeFromStream(std::move(font_stream));
   txt::TypefaceFontAssetProvider& font_provider =
       font_collection.dynamic_font_manager_->font_provider();
-  if (family_name.empty()) {
-    font_provider.RegisterTypeface(typeface);
-  } else {
-    font_provider.RegisterTypeface(typeface, family_name);
+  uint64_t fingerprint_epoch = 0u;
+  {
+    auto mutation_lease =
+        font_collection.collection_->AcquireVenusFontMutationLease();
+    if (family_name.empty()) {
+      font_provider.RegisterTypeface(typeface);
+    } else {
+      font_provider.RegisterTypeface(typeface, family_name);
+    }
+    fingerprint_epoch =
+        font_collection.collection_->ClearFontFamilyCacheWithVenusLease(
+            mutation_lease);
   }
-  font_collection.collection_->ClearFontFamilyCache();
+
+  {
+    std::scoped_lock lock(font_collection.venus_fingerprint_mutex_);
+    font_collection.venus_fingerprint_family_ = family_name;
+    font_collection.venus_fingerprint_sha256_ = digest;
+    font_collection.venus_fingerprint_epoch_ = fingerprint_epoch;
+    font_collection.venus_fingerprint_valid_ = true;
+  }
 
   font_data.Release();
   tonic::DartInvoke(callback, {tonic::ToDart(0)});

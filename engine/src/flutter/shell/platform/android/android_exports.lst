@@ -11,6 +11,22 @@
     _binary_icudtl_dat_size;
     InternalFlutterGpu*;
     kInternalFlutterGpu*;
+    # Venus 文本布局 V2 的唯一跨 DSO 入口。Venus 用 dlsym(RTLD_DEFAULT, ...) 取它,
+    # 而这份脚本 local: *; 会把白名单外的一切隐藏 —— 不加这一行, Android 上取不到,
+    # attach 恒 Unavailable。iOS framework 侧本来就导出它 (nm 可见
+    # _FlutterVenusTextLayoutGetApiV2), 这里是把两个平台拉平, 不是放宽。
+    FlutterVenusTextLayoutGetApiV2;
+    FlutterVenusTextLayoutPostPrelayoutNoteV2;
+    FlutterVenusTextLayoutClearPrelayoutNoteV2;
+    FlutterVenusTextLayoutCopyPrelayoutStoreCountersV2;
+    # 段落入口 (一个 IFC 一次排完)。**不加这一行 dlsym 恒返回 nullptr**, 而那
+    # 长得跟"引擎不支持段落粒度"一模一样 —— venus 会一声不响地退回单节点那套,
+    # 探针里 paragraph_measured/fallbacks 双 0 (2026-08-28 实测踩过)。
+    FlutterVenusTextLayoutParagraphV2;
+    FlutterVenusTextLayoutArtifactOwnerBeginV1;
+    FlutterVenusTextLayoutArtifactOwnerBindSlotV1;
+    FlutterVenusTextLayoutArtifactOwnerSealV1;
+    FlutterVenusTextLayoutArtifactOwnerReleaseV1;
   local:
     *;
 };

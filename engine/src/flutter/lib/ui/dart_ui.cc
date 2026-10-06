@@ -38,6 +38,9 @@
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/lib/ui/text/paragraph.h"
 #include "flutter/lib/ui/text/paragraph_builder.h"
+#if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
+#include "flutter/lib/ui/text/venus_text_layout_batch_oracle.h"
+#endif
 #include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/lib/ui/window/platform_isolate.h"
 #include "third_party/tonic/converter/dart_converter.h"
@@ -53,6 +56,12 @@ typedef CanvasPathMeasure PathMeasure;
 typedef CanvasGradient Gradient;
 typedef CanvasPath Path;
 
+#if FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
+#define FFI_DEBUG_FUNCTION_LIST(V) V(VenusTextLayoutBatchOracle::Measure)
+#else
+#define FFI_DEBUG_FUNCTION_LIST(V)
+#endif
+
 // List of native static functions used as @Native functions.
 // Items are tuples of ('function_name', 'parameter_count'), where:
 //   'function_name' is the fully qualified name of the native function.
@@ -67,6 +76,8 @@ typedef CanvasPath Path;
 //   If there is a mismatch between name or parameter count an @Native is
 //   trying to resolve, an exception will be thrown.
 #define FFI_FUNCTION_LIST(V)                                       \
+  V(Paragraph::SetVenusAmbientPrelayoutToken)                      \
+  V(Paragraph::VenusAmbientNoteVersion)                            \
   /* Constructors */                                               \
   V(Canvas::Create)                                                \
   V(ColorFilter::Create)                                           \
@@ -84,6 +95,7 @@ typedef CanvasPath Path;
   V(SemanticsUpdateBuilder::Create)                                \
   /* Other */                                                      \
   V(FontCollection::LoadFontFromList)                              \
+  FFI_DEBUG_FUNCTION_LIST(V)                                       \
   V(ImageDescriptor::initEncoded)                                  \
   V(Image::decodeImageFromPixelsSync)                              \
   V(ImageFilter::equals)                                           \
@@ -241,6 +253,7 @@ typedef CanvasPath Path;
   V(Paragraph, height)                           \
   V(Paragraph, ideographicBaseline)              \
   V(Paragraph, layout)                           \
+  V(Paragraph, setVenusPrelayoutToken)           \
   V(Paragraph, longestLine)                      \
   V(Paragraph, maxIntrinsicWidth)                \
   V(Paragraph, minIntrinsicWidth)                \

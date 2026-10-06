@@ -103,6 +103,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   text_style.setFontSize(SkDoubleToScalar(txt.font_size));
   text_style.setHeight(SkDoubleToScalar(txt.height));
   text_style.setHeightOverride(txt.has_height_override);
+  text_style.setHalfLeading(txt.half_leading);
   text_style.setFontFamilies({SkString(txt.font_family.c_str())});
   text_style.setLocale(SkString(txt.locale.c_str()));
   SkFontArguments::VariationPosition::Coordinate weight_coord{
@@ -139,6 +140,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   skia.turnHintingOff();
   skia.setReplaceTabCharacters(true);
   skia.setApplyRoundingHack(false);
+  skia.setHonorZeroHeightOverride(txt.honor_zero_height_override);
 
   return skia;
 }
@@ -168,6 +170,7 @@ skt::TextStyle ParagraphBuilderSkia::TxtToSkia(const TextStyle& txt) {
   skia.setHeight(SkDoubleToScalar(txt.height));
   skia.setHeightOverride(txt.has_height_override);
   skia.setHalfLeading(txt.half_leading);
+  skia.setBaselineShift(SkDoubleToScalar(txt.baseline_shift));
 
   skia.setLocale(SkString(txt.locale.c_str()));
   if (txt.background.has_value()) {

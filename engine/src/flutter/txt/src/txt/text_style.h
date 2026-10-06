@@ -43,6 +43,9 @@ class TextStyle {
   double word_spacing = 0.0;
   double height = 1.0;
   bool has_height_override = false;
+  // Vertical offset of this run from the line baseline (logical pixels, down
+  // is positive). Forwarded to skt::TextStyle::setBaselineShift.
+  double baseline_shift = 0.0;
   std::string locale;
   std::optional<flutter::DlPaint> background;
   std::optional<flutter::DlPaint> foreground;

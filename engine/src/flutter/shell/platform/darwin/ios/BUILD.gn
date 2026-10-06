@@ -25,6 +25,7 @@ shell_gpu_configuration("ios_gpu_configuration") {
 # The headers that will be copied to the Flutter.framework and be accessed
 # from outside the Flutter engine source root.
 _flutter_framework_headers = [
+  "../../common/public/flutter_venus_text_layout.h",
   "framework/Headers/Flutter.h",
   "framework/Headers/FlutterAppDelegate.h",
   "framework/Headers/FlutterCallbackCache.h",
