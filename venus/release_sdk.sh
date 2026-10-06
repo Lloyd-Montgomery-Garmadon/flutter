@@ -2,6 +2,12 @@
 # Generated Flutter entry. Maintain this template and all build logic in Venus.
 set -eo pipefail
 flutter_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+# This file is local configuration, kept beside the generated entry.
+if [[ -f "$flutter_root/venus/release_sdk.env" ]]; then
+  set -a
+  source "$flutter_root/venus/release_sdk.env"
+  set +a
+fi
 python=${PYTHON:-python3}
 if [[ -z "${VENUS_ROOT:-}" ]]; then
   venus_root=$("$python" -c 'import json,sys; sys.stdout.reconfigure(encoding="utf-8", newline="\n"); print(json.load(open(sys.argv[1]))["venus_root"])' \
