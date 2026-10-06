@@ -9,6 +9,10 @@ if [[ -f "$flutter_root/venus/release_sdk.env" ]]; then
   set +a
 fi
 python=${PYTHON:-python3}
+if [[ "${1:-}" == source ]]; then
+  printf 'STOP: source is maintained in Venus. Run bash scripts/flutter_sdk/release_sdk.sh source from the Venus checkout; hashes are persisted in its release manifest.\n' >&2
+  exit 2
+fi
 if [[ -z "${VENUS_ROOT:-}" ]]; then
   venus_root=$("$python" -c 'import json,sys; sys.stdout.reconfigure(encoding="utf-8", newline="\n"); print(json.load(open(sys.argv[1]))["venus_root"])' \
     "$flutter_root/docs/venus/source.json")
@@ -19,15 +23,12 @@ fi
 if command -v cygpath >/dev/null; then venus_root=$(cygpath -u "$venus_root"); fi
 entry="$venus_root/scripts/flutter_sdk/release_sdk.sh"
 [[ -f "$entry" ]] || { printf 'STOP: set VENUS_ROOT to the Venus checkout containing scripts/flutter_sdk/release_sdk.sh\n' >&2; exit 2; }
-args=("$@")
-has_manifest=false has_root=false
+args=("${@}")
+(( ${#args[@]} )) || args=(release)
+has_manifest=false
 for arg in "$@"; do
   [[ "$arg" != --manifest ]] || has_manifest=true
-  [[ "$arg" != --flutter-root ]] || has_root=true
 done
-if [[ "${1:-}" == source && "$has_root" == false ]]; then
-  args+=(--flutter-root "$flutter_root")
-fi
 if [[ "$has_manifest" == false ]]; then
   tag=$("$python" -c 'import json,sys; sys.stdout.reconfigure(encoding="utf-8", newline="\n"); print(json.load(open(sys.argv[1]))["official_tag"])' \
     "$flutter_root/docs/venus/source.json")
