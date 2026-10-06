@@ -2,7 +2,7 @@
   "canonical_source": "Venus scripts/flutter_sdk",
   "official_tag": "3.44.9",
   "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
-  "manifest_sha256": "91a7b7d9630fe697df23b5d387415ff6df0db152cc1f58fe41a51730a78bf938",
+  "manifest_sha256": "8ba16b0fc2c5bc4b72773016f771ea26c777668dff66971caa68ebc86d320d6b",
   "native_patch_sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",
   "skia_patch_sha256": "9b5e4b28ea5db8dee5d6761b5c32641b40cc3e84ed925c52bfcbd978ce3b92a4",
   "release_entry_sha256": "5375add4f04b1e93fec31b5250d7f5ed4d08e976ff612fa603e86c1bb74cf3c1",
