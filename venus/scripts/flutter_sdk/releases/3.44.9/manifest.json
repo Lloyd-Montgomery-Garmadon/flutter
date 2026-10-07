@@ -39,8 +39,8 @@
       "legacy_tip": "efc4baec83ae0c93773694d737e0b7e2b4065c2d",
       "legacy_commit_count": 5,
       "patch_file": "skia.patch",
-      "rounding_policy": "Committed-only migration per user request: retain committed fractional-height change 948b4a8. Exclude/defer the source Run.h dirty round restoration, leaving cc source untouched. Historical validation with that dirty source is not evidence for this build.",
-      "patch_sha256": "9b5e4b28ea5db8dee5d6761b5c32641b40cc3e84ed925c52bfcbd978ce3b92a4",
+      "rounding_policy": "Preserve official e9ed4fc InternalLineMetrics::height() rounding on the default Flutter path. The explicitly authorized one-line legacy Run.h round restoration is migrated; Venus honorZeroHeight support remains additive and disabled by default.",
+      "patch_sha256": "5fe13a4ca5b1fc9f493567d187e93a41bd4d44e7deaf947237bab774dfcaa898",
       "files": {
         "modules/skparagraph/include/ParagraphStyle.h": {
           "base_blob": "0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57",
@@ -75,7 +75,7 @@
         "modules/skparagraph/src/Run.h": {
           "base_blob": "8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31",
           "base_mode": "100644",
-          "patched_blob": "d653f2481d68aeb1d4f78f560c684110141cf4ac"
+          "patched_blob": "40c7696fbe2e729f16984a2ddfd1a7d430c6929c"
         },
         "modules/skparagraph/src/TextLine.cpp": {
           "base_blob": "bb60d70f9c34b964aa3dee799d5b846305f468de",
@@ -92,11 +92,6 @@
       "path": "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc",
       "diff_sha256": "15be4854de07d34188a11a487c1bed80abef32f435011a0333074bd3a780904c",
       "reason": "Older branch non-baseline placeholder mapping forced to kBaseline; pinned later contains explicit CSS top/bottom two-pass alignment. Not included automatically."
-    },
-    {
-      "worktree": "/Users/cses/workspace/flutter/engine/src/flutter/third_party/.claude/worktrees/skia-layout-generation-wpt",
-      "path": "modules/skparagraph/src/Run.h",
-      "reason": "User explicitly requested committed-only migration; one-line dirty round restoration deferred. Other workers source preserved."
     }
   ],
   "delivery_policy": {
@@ -105,7 +100,7 @@
     "push_requires_explicit_user_authorization": true,
     "allow_followup_maintenance_commits": true
   },
-  "migration_scope": "Already committed Flutter and Skia content only; all legacy uncommitted work is deferred per user instruction.",
+  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration; the phase2 venus_text_layout_node_core.cc change remains deferred.",
   "native_patch": {
     "path": "native.patch",
     "sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",

@@ -220,7 +220,7 @@ index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd01
  
  SkShaper::RunHandler::Buffer Run::newRunBuffer() {
 diff --git a/modules/skparagraph/src/Run.h b/modules/skparagraph/src/Run.h
-index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..d653f2481d68aeb1d4f78f560c684110141cf4ac 100644
+index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..40c7696fbe2e729f16984a2ddfd1a7d430c6929c 100644
 --- a/modules/skparagraph/src/Run.h
 +++ b/modules/skparagraph/src/Run.h
 @@ -61,7 +61,8 @@ public:
@@ -251,15 +251,6 @@ index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..d653f2481d68aeb1d4f78f560c684110
      const bool fUseHalfLeading;
      const SkScalar fBaselineShift;
      SkScalar fCorrectAscent;
-@@ -478,7 +483,7 @@ public:
-     }
- 
-     SkScalar height() const {
--        return ::round((double)fDescent - fAscent + fLeading);
-+        return fDescent - fAscent + fLeading;
-     }
- 
-     void update(SkScalar a, SkScalar d, SkScalar l) {
 diff --git a/modules/skparagraph/src/TextLine.cpp b/modules/skparagraph/src/TextLine.cpp
 index bb60d70f9c34b964aa3dee799d5b846305f468de..358f3468f8ad989b25fd361befb4d4edcecdcb1e 100644
 --- a/modules/skparagraph/src/TextLine.cpp
