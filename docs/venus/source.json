@@ -1,13 +1,13 @@
 {
   "canonical_source": "Venus scripts/flutter_sdk",
-  "manifest_sha256": "4599e246246e230f8338b18ed7aaa3eea9a209681d746a8c75070328c8cd0af1",
-  "native_patch_sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",
-  "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
   "official_tag": "3.44.9",
-  "release_entry_sha256": "60a4e828364bf179f02e8983d135b466188d1918d6331902c7ed4939ce42f54f",
-  "release_env_example_sha256": "9ae839f047f591196e01570aae742873236b5fb50b7ae19d3eea716c99098c53",
-  "release_ignore_sha256": "5354738fe1f119a2338458d82867f3c411bf616730f45b1091582b01261d76ee",
-  "release_readme_sha256": "6cd7e48298b2a35eac82581a1cb89829e1e68af906f3f0d6cff0ddf0219c577c",
+  "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
+  "manifest_sha256": "6c5f6409a8b91d773c14ed3807a71b7eca7108d83ee98df1519a5fd7ac318341",
+  "native_patch_sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",
   "skia_patch_sha256": "9b5e4b28ea5db8dee5d6761b5c32641b40cc3e84ed925c52bfcbd978ce3b92a4",
-  "venus_root": "/Users/cses/workspace/cses/venus_engine"
+  "release_entry_sha256": "2b37931d3b1040f6fe2687a0834a409ee582c3c36d53fba92e1d6a4ca9f7a56e",
+  "release_readme_sha256": "20e13697601a0245b63874f00ac93851e62d17eb6d4202ac0f8c1a77b2260840",
+  "release_env_example_sha256": "50dd31442c9f2b9fa23ff8d6e09e5c6ff0cdd02825656740ab7a6703beb911a0",
+  "release_ignore_sha256": "5354738fe1f119a2338458d82867f3c411bf616730f45b1091582b01261d76ee",
+  "venus_root": "/Users/cses/workspace/cses/venus_engine/.claude/worktrees/parallel-text-mvp-demo"
 }

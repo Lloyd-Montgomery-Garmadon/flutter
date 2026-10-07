@@ -1,0 +1,361 @@
+diff --git a/modules/skparagraph/include/ParagraphStyle.h b/modules/skparagraph/include/ParagraphStyle.h
+index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..cd1657783032f17aed0e3c4433fa0c059abd26a1 100644
+--- a/modules/skparagraph/include/ParagraphStyle.h
++++ b/modules/skparagraph/include/ParagraphStyle.h
+@@ -85,7 +85,8 @@ struct ParagraphStyle {
+                this->fTextDirection == rhs.fTextDirection && this->fTextAlign == rhs.fTextAlign &&
+                this->fDefaultTextStyle == rhs.fDefaultTextStyle &&
+                this->fReplaceTabCharacters == rhs.fReplaceTabCharacters &&
+-               this->fFakeMissingFontStyles == rhs.fFakeMissingFontStyles;
++               this->fFakeMissingFontStyles == rhs.fFakeMissingFontStyles &&
++               this->fHonorZeroHeightOverride == rhs.fHonorZeroHeightOverride;
+ 
+     }
+ 
+@@ -135,6 +136,14 @@ struct ParagraphStyle {
+     bool getLetterSpacingByCSSSpec() const { return fLetterSpacingByCSSSpec; }
+     void setLetterSpacingByCSSSpec(bool value) { fLetterSpacingByCSSSpec = value; }
+ 
++    // venus: CSS `line-height: 0` is an authored line height, not "unset".
++    // When on, a text style whose height override is set keeps a zero height
++    // multiplier (the run becomes a zero-height inline box centered by half
++    // leading, CSS 2.1 §10.8.1) instead of falling back to the font metrics.
++    // Off by default, so every other paragraph lays out exactly as before.
++    bool getHonorZeroHeightOverride() const { return fHonorZeroHeightOverride; }
++    void setHonorZeroHeightOverride(bool value) { fHonorZeroHeightOverride = value; }
++
+ private:
+     StrutStyle fStrutStyle;
+     TextStyle fDefaultTextStyle;
+@@ -150,6 +159,7 @@ private:
+     bool fFakeMissingFontStyles;
+     bool fApplyRoundingHack = true;
+     bool fLetterSpacingByCSSSpec = false;
++    bool fHonorZeroHeightOverride = false;
+ };
+ }  // namespace textlayout
+ }  // namespace skia
+diff --git a/modules/skparagraph/src/OneLineShaper.cpp b/modules/skparagraph/src/OneLineShaper.cpp
+index d36dfd86cb2ecd82883118d7717f0f9de1b776b3..e168dfca4013bdc020fdbdba6d816395980f802f 100644
+--- a/modules/skparagraph/src/OneLineShaper.cpp
++++ b/modules/skparagraph/src/OneLineShaper.cpp
+@@ -215,7 +215,8 @@ void OneLineShaper::finish(const Block& block, SkScalar height, SkScalar& advanc
+                     block.fStyle.getHalfLeading(),
+                     block.fStyle.getBaselineShift(),
+                     this->fParagraph->fRuns.size(),
+-                    advanceX
++                    advanceX,
++                    fHonorZeroHeight
+                 );
+         auto piece = &this->fParagraph->fRuns.back();
+ 
+@@ -400,7 +401,14 @@ void OneLineShaper::iterateThroughFontStyles(TextRange textRange,
+         SkASSERT(combinedBlock.fRange.width() == 0 || combinedBlock.fRange.end == block.fRange.start);
+ 
+         if (!combinedBlock.fRange.empty()) {
+-            if (block.fStyle.matchOneAttribute(StyleType::kFont, combinedBlock.fStyle)) {
++            // venus: kFont compares fHeight but not the override bit, so a
++            // `normal` block and an authored zero-height block (both fHeight 0)
++            // would merge and one of them would lose its override.
++            const bool sameHeightOverride =
++                    !fParagraph->paragraphStyle().getHonorZeroHeightOverride() ||
++                    block.fStyle.getHeightOverride() == combinedBlock.fStyle.getHeightOverride();
++            if (sameHeightOverride &&
++                block.fStyle.matchOneAttribute(StyleType::kFont, combinedBlock.fStyle)) {
+                 combinedBlock.add(blockRange);
+                 addFeatures(block);
+                 continue;
+@@ -650,6 +658,8 @@ bool OneLineShaper::shape() {
+ 
+             // Start from the beginning (hoping that it's a simple case one block - one run)
+             fHeight = block.fStyle.getHeightOverride() ? block.fStyle.getHeight() : 0;
++            fHonorZeroHeight = block.fStyle.getHeightOverride() &&
++                               fParagraph->paragraphStyle().getHonorZeroHeightOverride();
+             fUseHalfLeading = block.fStyle.getHalfLeading();
+             fBaselineShift = block.fStyle.getBaselineShift();
+             fAdvance = SkVector::Make(advanceX, 0);
+diff --git a/modules/skparagraph/src/OneLineShaper.h b/modules/skparagraph/src/OneLineShaper.h
+index e33f9d1414bc0694707e13b748b732adb4647628..3bed8c1741700384d582bd8853470ea0a9960aa9 100644
+--- a/modules/skparagraph/src/OneLineShaper.h
++++ b/modules/skparagraph/src/OneLineShaper.h
+@@ -18,6 +18,7 @@ public:
+     explicit OneLineShaper(ParagraphImpl* paragraph)
+         : fParagraph(paragraph)
+         , fHeight(0.0f)
++        , fHonorZeroHeight(false)
+         , fUseHalfLeading(false)
+         , fBaselineShift(0.0f)
+         , fAdvance(SkPoint::Make(0.0f, 0.0f))
+@@ -96,7 +97,8 @@ private:
+                                            fUseHalfLeading,
+                                            fBaselineShift,
+                                            ++fUniqueRunId,
+-                                           fAdvance.fX);
++                                           fAdvance.fX,
++                                           fHonorZeroHeight);
+         return fCurrentRun->newRunBuffer();
+     }
+ 
+@@ -115,6 +117,7 @@ private:
+     ParagraphImpl* fParagraph;
+     TextRange fCurrentText;
+     SkScalar fHeight;
++    bool fHonorZeroHeight;
+     bool fUseHalfLeading;
+     SkScalar fBaselineShift;
+     SkVector fAdvance;
+diff --git a/modules/skparagraph/src/ParagraphCache.cpp b/modules/skparagraph/src/ParagraphCache.cpp
+index e5862e1169b92ac2097ff02561bb374d7e153fdb..98a1fa2de683342a60c70b1ee28c810ef73430b2 100644
+--- a/modules/skparagraph/src/ParagraphCache.cpp
++++ b/modules/skparagraph/src/ParagraphCache.cpp
+@@ -186,6 +186,7 @@ uint32_t ParagraphCacheKey::computeHash() const {
+     hash = mix(hash, SkGoodHash()(relax(fParagraphStyle.getHeight())));
+     hash = mix(hash, SkGoodHash()(fParagraphStyle.getTextDirection()));
+     hash = mix(hash, SkGoodHash()(fParagraphStyle.getReplaceTabCharacters() ? 1 : 0));
++    hash = mix(hash, SkGoodHash()(fParagraphStyle.getHonorZeroHeightOverride() ? 1 : 0));
+ 
+     auto& strutStyle = fParagraphStyle.getStrutStyle();
+     if (strutStyle.getStrutEnabled()) {
+@@ -238,6 +239,13 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
+         return false;
+     }
+ 
++    // venus: with honored zero heights, the override and half-leading bits change
++    // the cached run metrics, while equalsByFonts only compares fHeight.
++    const bool honorZeroHeight = fParagraphStyle.getHonorZeroHeightOverride();
++    if (honorZeroHeight != other.fParagraphStyle.getHonorZeroHeightOverride()) {
++        return false;
++    }
++
+     for (int i = 0; i < fTextStyles.size(); ++i) {
+         auto& tsa = fTextStyles[i];
+         auto& tsb = other.fTextStyles[i];
+@@ -247,6 +255,11 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
+         if (!(tsa.fStyle.equalsByFonts(tsb.fStyle))) {
+             return false;
+         }
++        if (honorZeroHeight &&
++            (tsa.fStyle.getHeightOverride() != tsb.fStyle.getHeightOverride() ||
++             tsa.fStyle.getHalfLeading() != tsb.fStyle.getHalfLeading())) {
++            return false;
++        }
+         if (tsa.fRange.width() != tsb.fRange.width()) {
+             return false;
+         }
+diff --git a/modules/skparagraph/src/ParagraphImpl.cpp b/modules/skparagraph/src/ParagraphImpl.cpp
+index 9ea8267545ac92f0c918e74dbaef80ab1e559249..32898285fc5e6790806665f9ebed860fea0667cc 100644
+--- a/modules/skparagraph/src/ParagraphImpl.cpp
++++ b/modules/skparagraph/src/ParagraphImpl.cpp
+@@ -717,6 +717,9 @@ void ParagraphImpl::resolveStrut() {
+     SkFont font(typefaces.front(), strutStyle.getFontSize());
+     SkFontMetrics metrics;
+     font.getMetrics(&metrics);
++    if (font.getSize() == 0) {
++        metrics = {};
++    }
+     const SkScalar strutLeading = strutStyle.getLeading() < 0 ? 0 : strutStyle.getLeading() * strutStyle.getFontSize();
+ 
+     if (strutStyle.getHeightOverride()) {
+diff --git a/modules/skparagraph/src/Run.cpp b/modules/skparagraph/src/Run.cpp
+index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd014ba0515e 100644
+--- a/modules/skparagraph/src/Run.cpp
++++ b/modules/skparagraph/src/Run.cpp
+@@ -21,7 +21,8 @@ Run::Run(ParagraphImpl* owner,
+          bool useHalfLeading,
+          SkScalar baselineShift,
+          size_t index,
+-         SkScalar offsetX)
++         SkScalar offsetX,
++         bool honorZeroHeight)
+     : fOwner(owner)
+     , fTextRange(firstChar + info.utf8Range.begin(), firstChar + info.utf8Range.end())
+     , fClusterRange(EMPTY_CLUSTERS)
+@@ -33,6 +34,7 @@ Run::Run(ParagraphImpl* owner,
+     , fOffsets(fGlyphData->offsets)
+     , fClusterIndexes(fGlyphData->clusterIndexes)
+     , fHeightMultiplier(heightMultiplier)
++    , fHonorZeroHeight(honorZeroHeight)
+     , fUseHalfLeading(useHalfLeading)
+     , fBaselineShift(baselineShift)
+ {
+@@ -49,6 +51,11 @@ Run::Run(ParagraphImpl* owner,
+     fOffsets.push_back_n(info.glyphCount + 1);
+     fClusterIndexes.push_back_n(info.glyphCount + 1);
+     info.fFont.getMetrics(&fFontMetrics);
++    // Zero-size glyphs are shaped with a 1px fallback font by SkScalerContext;
++    // that fallback must not give their line box, baseline, or hit region height.
++    if (fFont.getSize() == 0) {
++        fFontMetrics = {};
++    }
+ 
+     this->calculateMetrics();
+ 
+@@ -64,7 +71,12 @@ void Run::calculateMetrics() {
+     fCorrectAscent = fFontMetrics.fAscent - fFontMetrics.fLeading * 0.5;
+     fCorrectDescent = fFontMetrics.fDescent + fFontMetrics.fLeading * 0.5;
+     fCorrectLeading = 0;
+-    if (SkScalarNearlyZero(fHeightMultiplier)) {
++    if (fFont.getSize() == 0) {
++        return;  // Also avoids 0/0 when an explicit height multiplier is present.
++    }
++    // venus: an honored zero multiplier falls through, so half leading turns
++    // the run into a zero-height box at (ascent+descent)/2 (CSS 2.1 §10.8.1).
++    if (!fHonorZeroHeight && SkScalarNearlyZero(fHeightMultiplier)) {
+         return;
+     }
+     const auto runHeight = fHeightMultiplier * fFont.getSize();
+@@ -78,9 +90,11 @@ void Run::calculateMetrics() {
+         fCorrectAscent *= multiplier;
+         fCorrectDescent *= multiplier;
+     }
+-    // If we shift the baseline we need to make sure the shifted text fits the line
+-    fCorrectAscent += fBaselineShift;
+-    fCorrectDescent += fBaselineShift;
++    // venus: the baseline shift is NOT folded in here. correctAscent() /
++    // correctDescent() (Run.h) already add fBaselineShift, and they are the only
++    // readers of these fields; adding it here too counted the shift twice for
++    // height-override runs only (the early return above skips this line), so a
++    // shifted run with a declared line-height grew the line box by the shift.
+ }
+ 
+ SkShaper::RunHandler::Buffer Run::newRunBuffer() {
+diff --git a/modules/skparagraph/src/Run.h b/modules/skparagraph/src/Run.h
+index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..d653f2481d68aeb1d4f78f560c684110141cf4ac 100644
+--- a/modules/skparagraph/src/Run.h
++++ b/modules/skparagraph/src/Run.h
+@@ -61,7 +61,8 @@ public:
+         bool useHalfLeading,
+         SkScalar baselineShift,
+         size_t index,
+-        SkScalar shiftX);
++        SkScalar shiftX,
++        bool honorZeroHeight = false);
+     Run(const Run&) = default;
+     Run& operator=(const Run&) = delete;
+     Run(Run&&) = default;
+@@ -97,6 +98,9 @@ public:
+     TextDirection getTextDirection() const { return leftToRight() ? TextDirection::kLtr : TextDirection::kRtl; }
+     size_t index() const { return fIndex; }
+     SkScalar heightMultiplier() const { return fHeightMultiplier; }
++    // venus: true when a zero height multiplier is an authored height (see
++    // ParagraphStyle::setHonorZeroHeightOverride), not "use font metrics".
++    bool honorZeroHeight() const { return fHonorZeroHeight; }
+     bool useHalfLeading() const { return fUseHalfLeading; }
+     SkScalar baselineShift() const { return fBaselineShift; }
+     PlaceholderStyle* placeholderStyle() const;
+@@ -206,6 +210,7 @@ private:
+ 
+     SkFontMetrics fFontMetrics;
+     const SkScalar fHeightMultiplier;
++    const bool fHonorZeroHeight;
+     const bool fUseHalfLeading;
+     const SkScalar fBaselineShift;
+     SkScalar fCorrectAscent;
+@@ -478,7 +483,7 @@ public:
+     }
+ 
+     SkScalar height() const {
+-        return ::round((double)fDescent - fAscent + fLeading);
++        return fDescent - fAscent + fLeading;
+     }
+ 
+     void update(SkScalar a, SkScalar d, SkScalar l) {
+diff --git a/modules/skparagraph/src/TextLine.cpp b/modules/skparagraph/src/TextLine.cpp
+index bb60d70f9c34b964aa3dee799d5b846305f468de..358f3468f8ad989b25fd361befb4d4edcecdcb1e 100644
+--- a/modules/skparagraph/src/TextLine.cpp
++++ b/modules/skparagraph/src/TextLine.cpp
+@@ -366,11 +366,18 @@ void TextLine::buildTextBlob(TextRange textRange, const TextStyle& style, const
+     SkTextBlobBuilder builder;
+     context.run->copyTo(builder, SkToU32(context.pos), context.size);
+     record.fClippingNeeded = context.clippingNeeded;
+-    if (context.clippingNeeded) {
+-        record.fClipRect = extendHeight(context).makeOffset(this->offset());
+-    } else {
+-        record.fClipRect = context.clip.makeOffset(this->offset());
++    SkRect clip = context.clippingNeeded ? extendHeight(context) : context.clip;
++    if (context.run->honorZeroHeight()) {
++        // venus: the CSS run box of a zero line height is zero tall; clipping
++        // to it would erase the glyphs. Only ever widen to the glyph box.
++        const SkScalar glyphTop = this->sizes().runTop(context.run, LineMetricStyle::Typographic);
++        const SkScalar glyphBottom =
++                glyphTop + context.run->calculateHeight(LineMetricStyle::Typographic,
++                                                        LineMetricStyle::Typographic);
++        clip.fTop = std::min(clip.fTop, glyphTop);
++        clip.fBottom = std::max(clip.fBottom, glyphBottom);
+     }
++    record.fClipRect = clip.makeOffset(this->offset());
+ 
+     SkASSERT(nearlyEqual(context.run->baselineShift(), style.getBaselineShift()));
+     SkScalar correctedBaseline = SkScalarFloorToScalar(this->baseline() + style.getBaselineShift() +  0.5);
+@@ -635,8 +642,10 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+ 
+     class ShapeHandler final : public SkShaper::RunHandler {
+     public:
+-        ShapeHandler(SkScalar lineHeight, bool useHalfLeading, SkScalar baselineShift, const SkString& ellipsis)
+-            : fRun(nullptr), fLineHeight(lineHeight), fUseHalfLeading(useHalfLeading), fBaselineShift(baselineShift), fEllipsis(ellipsis) {}
++        ShapeHandler(SkScalar lineHeight, bool useHalfLeading, SkScalar baselineShift,
++                     const SkString& ellipsis, bool honorZeroHeight)
++            : fRun(nullptr), fLineHeight(lineHeight), fHonorZeroHeight(honorZeroHeight),
++              fUseHalfLeading(useHalfLeading), fBaselineShift(baselineShift), fEllipsis(ellipsis) {}
+         std::unique_ptr<Run> run() & { return std::move(fRun); }
+ 
+     private:
+@@ -648,7 +657,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+ 
+         Buffer runBuffer(const RunInfo& info) override {
+             SkASSERT(!fRun);
+-            fRun = std::make_unique<Run>(nullptr, info, 0, fLineHeight, fUseHalfLeading, fBaselineShift, 0, 0);
++            fRun = std::make_unique<Run>(nullptr, info, 0, fLineHeight, fUseHalfLeading, fBaselineShift, 0, 0, fHonorZeroHeight);
+             return fRun->newRunBuffer();
+         }
+ 
+@@ -663,6 +672,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+ 
+         std::unique_ptr<Run> fRun;
+         SkScalar fLineHeight;
++        bool fHonorZeroHeight;
+         bool fUseHalfLeading;
+         SkScalar fBaselineShift;
+         SkString fEllipsis;
+@@ -682,7 +692,8 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+     }
+ 
+     auto shaped = [&](sk_sp<SkTypeface> typeface, sk_sp<SkFontMgr> fallback) -> std::unique_ptr<Run> {
+-        ShapeHandler handler(run.heightMultiplier(), run.useHalfLeading(), run.baselineShift(), ellipsis);
++        ShapeHandler handler(run.heightMultiplier(), run.useHalfLeading(), run.baselineShift(),
++                             ellipsis, run.honorZeroHeight());
+         SkFont font(std::move(typeface), textStyle.getFontSize());
+         font.setEdging(textStyle.getFontEdging());
+         font.setHinting(textStyle.getFontHinting());
+@@ -1039,7 +1050,9 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(TextAdjustment textAdjustment
+         auto runStyleTextRange = TextRange(start, start + size);
+         ClipContext clipContext = correctContext(runStyleTextRange, textOffsetInRun);
+         textOffsetInRun += clipContext.clip.width();
+-        if (clipContext.clip.height() == 0) {
++        // venus: an honored zero-height run has a zero-height CSS box but real
++        // glyphs; skipping it would drop the text of every style block.
++        if (clipContext.clip.height() == 0 && !run->honorZeroHeight()) {
+             continue;
+         }
+         visitor(runStyleTextRange, *prevStyle, clipContext);
+@@ -1148,8 +1161,7 @@ LineMetrics TextLine::getMetrics() const {
+         *runWidthInLine = this->iterateThroughSingleRunByStyles(
+         TextAdjustment::GlyphCluster, run, runOffsetInLine, textRange, StyleType::kForeground,
+         [&result, &run](TextRange textRange, const TextStyle& style, const ClipContext& context) {
+-            SkFontMetrics fontMetrics;
+-            run->fFont.getMetrics(&fontMetrics);
++            SkFontMetrics fontMetrics = run->fFontMetrics;
+             StyleMetrics styleMetrics(&style, fontMetrics);
+             result.fLineMetrics.emplace(textRange.start, styleMetrics);
+         });
+@@ -1254,7 +1266,9 @@ void TextLine::getRectsForRange(TextRange textRange0,
+                 }
+                 break;
+                 case RectHeightStyle::kTight: {
+-                    if (run->fHeightMultiplier <= 0) {
++                    // venus: an honored zero-height run still has a glyph box;
++                    // tight rects report it instead of the zero-height run box.
++                    if (run->fHeightMultiplier <= 0 && !run->honorZeroHeight()) {
+                         break;
+                     }
+                     const auto effectiveBaseline = this->baseline() + this->sizes().delta();

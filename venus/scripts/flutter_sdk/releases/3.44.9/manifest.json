@@ -1,0 +1,529 @@
+{
+  "schema_version": 2,
+  "upstream": "https://github.com/flutter/flutter.git",
+  "fork": "https://github.com/Lloyd-Montgomery-Garmadon/flutter.git",
+  "fork_default_branch": "master",
+  "official_tag": "3.44.9",
+  "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
+  "patch_branch": "venus/venus-stable-3.44.9",
+  "source": {
+    "flutter_base": "49d0823cb00e22a08534f2b5e2a125386176eea6",
+    "flutter_tip": "12a1cd2cceb08dda55cd5f57ceec4ce1b9330447",
+    "flutter_commit_count": 53,
+    "flutter_changed_files": 43,
+    "inventory": "source-inventory.json",
+    "migrated_patch_commit": "f33cd941229dacd068c66e2a23946e391b58cc9a"
+  },
+  "adaptations": [
+    {
+      "path": "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc",
+      "reason": "Keep custom tests and required includes, preserve official 3.44.9 surrounding tests."
+    },
+    {
+      "path": "engine/src/flutter/impeller/entity/shaders/gradients/linear_gradient_uniform_fill.frag",
+      "reason": "Keep 3.44.9 FragInfo uniform layout; port projected-position and hard-stop selection without newer colors_info/stop_pairs_info blocks."
+    },
+    {
+      "path": "Skia modules/skparagraph/include/ParagraphStyle.h",
+      "reason": "Port honorZeroHeightOverride equality/accessors/member without newer official soft-hyphen fields."
+    },
+    {
+      "path": "Skia modules/skparagraph/src/TextLine.cpp",
+      "reason": "Port ellipsis honorZeroHeight propagation without newer official isHyphen parameter."
+    }
+  ],
+  "dependencies": {
+    "skia": {
+      "official_revision": "e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465",
+      "legacy_base": "c78782c7c1c2415611fb2f6bf96b5f1068dcd117",
+      "legacy_tip": "efc4baec83ae0c93773694d737e0b7e2b4065c2d",
+      "legacy_commit_count": 5,
+      "patch_file": "skia.patch",
+      "rounding_policy": "Committed-only migration per user request: retain committed fractional-height change 948b4a8. Exclude/defer the source Run.h dirty round restoration, leaving cc source untouched. Historical validation with that dirty source is not evidence for this build.",
+      "patch_sha256": "9b5e4b28ea5db8dee5d6761b5c32641b40cc3e84ed925c52bfcbd978ce3b92a4",
+      "files": {
+        "modules/skparagraph/include/ParagraphStyle.h": {
+          "base_blob": "0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57",
+          "base_mode": "100644",
+          "patched_blob": "cd1657783032f17aed0e3c4433fa0c059abd26a1"
+        },
+        "modules/skparagraph/src/OneLineShaper.cpp": {
+          "base_blob": "d36dfd86cb2ecd82883118d7717f0f9de1b776b3",
+          "base_mode": "100644",
+          "patched_blob": "e168dfca4013bdc020fdbdba6d816395980f802f"
+        },
+        "modules/skparagraph/src/OneLineShaper.h": {
+          "base_blob": "e33f9d1414bc0694707e13b748b732adb4647628",
+          "base_mode": "100644",
+          "patched_blob": "3bed8c1741700384d582bd8853470ea0a9960aa9"
+        },
+        "modules/skparagraph/src/ParagraphCache.cpp": {
+          "base_blob": "e5862e1169b92ac2097ff02561bb374d7e153fdb",
+          "base_mode": "100644",
+          "patched_blob": "98a1fa2de683342a60c70b1ee28c810ef73430b2"
+        },
+        "modules/skparagraph/src/ParagraphImpl.cpp": {
+          "base_blob": "9ea8267545ac92f0c918e74dbaef80ab1e559249",
+          "base_mode": "100644",
+          "patched_blob": "32898285fc5e6790806665f9ebed860fea0667cc"
+        },
+        "modules/skparagraph/src/Run.cpp": {
+          "base_blob": "a1cfc403f8883bd403267a927b09fe9799d57b0e",
+          "base_mode": "100644",
+          "patched_blob": "b0336033dd0ad08e573596348d5efd014ba0515e"
+        },
+        "modules/skparagraph/src/Run.h": {
+          "base_blob": "8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31",
+          "base_mode": "100644",
+          "patched_blob": "d653f2481d68aeb1d4f78f560c684110141cf4ac"
+        },
+        "modules/skparagraph/src/TextLine.cpp": {
+          "base_blob": "bb60d70f9c34b964aa3dee799d5b846305f468de",
+          "base_mode": "100644",
+          "patched_blob": "358f3468f8ad989b25fd361befb4d4edcecdcb1e"
+        }
+      }
+    }
+  },
+  "excluded_source_changes": [
+    {
+      "worktree": "/Users/cses/workspace/flutter/.codex/worktrees/venus-text-layout-parallel-app-phase2",
+      "HEAD": "247796476ddd1136cca797fe2c16b4e8d30e715a",
+      "path": "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc",
+      "diff_sha256": "15be4854de07d34188a11a487c1bed80abef32f435011a0333074bd3a780904c",
+      "reason": "Older branch non-baseline placeholder mapping forced to kBaseline; pinned later contains explicit CSS top/bottom two-pass alignment. Not included automatically."
+    },
+    {
+      "worktree": "/Users/cses/workspace/flutter/engine/src/flutter/third_party/.claude/worktrees/skia-layout-generation-wpt",
+      "path": "modules/skparagraph/src/Run.h",
+      "reason": "User explicitly requested committed-only migration; one-line dirty round restoration deferred. Other workers source preserved."
+    }
+  ],
+  "delivery_policy": {
+    "one_commit_directly_on_official_tag": false,
+    "keep_fork_default_branch_pristine": true,
+    "push_requires_explicit_user_authorization": true,
+    "allow_followup_maintenance_commits": true
+  },
+  "migration_scope": "Already committed Flutter and Skia content only; all legacy uncommitted work is deferred per user instruction.",
+  "native_patch": {
+    "path": "native.patch",
+    "sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",
+    "expected_file_count": 43,
+    "files": {
+      "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
+        "base_blob": "9614f9b1f82deb442a9538ad3ef3abe4371b3fce",
+        "base_mode": "100644",
+        "patched_blob": "51f680ff1a4e640f0e02cabe76c679dc3231c4ad",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/impeller/entity/shaders/gradients/linear_gradient_ssbo_fill.frag": {
+        "base_blob": "00d5d5529faeed009ef2928b72cc51f01d5176d1",
+        "base_mode": "100644",
+        "patched_blob": "ebb1381226699c8cffe11f4ebad69fed4c65eaa2",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/impeller/entity/shaders/gradients/linear_gradient_uniform_fill.frag": {
+        "base_blob": "ace605876d9be7379d54753591f54c32a941c1a3",
+        "base_mode": "100644",
+        "patched_blob": "7a6167b01b46221dcac24280c464b7304968991a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/BUILD.gn": {
+        "base_blob": "3bad6b4e948a9287827c475da8401a51a56a9498",
+        "base_mode": "100644",
+        "patched_blob": "8ad0052ec88a13c1774fd0a837c48229da66dc26",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/dart_ui.cc": {
+        "base_blob": "04385fcf76b04d10efe35e9b05d4bb6647a9e2c0",
+        "base_mode": "100644",
+        "patched_blob": "4e74e1ee3c8840eb69fbc4b7ee0e6ac9db460ac6",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text.dart": {
+        "base_blob": "4bdb1243abc5ae88269b6ae145a09f4e8b698e66",
+        "base_mode": "100644",
+        "patched_blob": "e7a68f1e2012e9e6df58028fcd18dc9c1b971a54",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/font_collection.cc": {
+        "base_blob": "34ff63ea87df6de1ed71b8cbda04d28878dc0155",
+        "base_mode": "100644",
+        "patched_blob": "c6ab0384edda757c57a6a43aa4828b33d64e15c6",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/font_collection.h": {
+        "base_blob": "78e4ff9125b52dfd4602ba55a5b71d119c36609f",
+        "base_mode": "100644",
+        "patched_blob": "29fd286eea11ed7228b85bfb5d6f3ba20ac34052",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/paragraph.cc": {
+        "base_blob": "509c6e586edd517ac2eceeac5f40de98c1262749",
+        "base_mode": "100644",
+        "patched_blob": "2c6434ca5cb4f80d9563f97426dd099cff59a29d",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/paragraph.h": {
+        "base_blob": "a3e4389be15784c52c7973ad13d4147d5bcdcdd0",
+        "base_mode": "100644",
+        "patched_blob": "714259a6fecab50c81c182eca9ff96a534a1b427",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_batch_oracle.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "e60e78a3b5ac72a7ec3ad346cb7b81b69b5adf19",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_batch_oracle.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "fc93fab23e2c2e24e018eeba961413ad16e13644",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_batch_oracle_unittests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "15fc9efcbe94fe66568e7fa69cf315d28706636f",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "3cc2a5b02b715f67fb3c7ce308b1a98ea98789f2",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "ef822911f4ff32d7f54b8c6301bbe77fa0efe261",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_paragraph_store.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "499603d3c6177ce2f35912109dd6ef3a22f81fdd",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_paragraph_store.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "21e145a8d95136f9fb380b18fb2026534663ce5a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/ui/text/venus_text_layout_service_unittests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "4c56db1d039254cb95f4e00331b23d33399af561",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/BUILD.gn": {
+        "base_blob": "e1aba738f17be802e51cabf1c1b4b587ed012021",
+        "base_mode": "100644",
+        "patched_blob": "ab8aa2e09df6a04cd9ef5fcd11aea054117dd808",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/engine.cc": {
+        "base_blob": "fd0915c1accb6cbbf5752d2bcb57527fbeca6078",
+        "base_mode": "100644",
+        "patched_blob": "f1e9da53e1de8399d73d75cfac33e59931f5be9f",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/engine.h": {
+        "base_blob": "e07f7d4f5697c73dd2cc0c585163440f825e0649",
+        "base_mode": "100644",
+        "patched_blob": "c9e29892eb81df9b4ec2a967a1579c56922f0093",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_p3_paragraph_handoff_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "eca4de925e7f709e8c3ba51babb8a74a30c7d249",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "b5d1c27033bb65e6c7f5d2b34dc83d5591bdbb86",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "d786352c133d08c0b73b4f33eadd0baf8fd0a4f1",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "3c02b9768cb3097bcc8d69cd7ef77f0010e7d1c5",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_service.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "9a28b37765f0bda95b407fc0b1711a662f3bba27",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_service.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "a22a9e27e51e6283b3ea5c357f567dee6bd05efd",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_v2_lifecycle_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "8d503eae99c5dee5e2b10eeade2056053d5510a2",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "0b343edce6a24c6b8b5ebb49899476c09d64519a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_v2_stress.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "c6cb9ba80df713440807e7c5f54f257e9db6828a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/common/venus_text_layout_v2_tsan_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "22c2c5c158149f939e5f295bd3e82a1275272410",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/platform/android/android_exports.lst": {
+        "base_blob": "198bff773dd74e8ff83dd97c250915840972bac6",
+        "base_mode": "100644",
+        "patched_blob": "9064686f025ec8e8c6919647f89ad37a75794eaa",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/platform/common/BUILD.gn": {
+        "base_blob": "67d9d16727c5bd8921fc72386bdd6433dcbf62c9",
+        "base_mode": "100644",
+        "patched_blob": "6e5ecc7d564b85a1a89ca6b1e9aa5b7900da6c21",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "0218c3e067fc3001c8bc42962b65ae53511da179",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/shell/platform/darwin/ios/BUILD.gn": {
+        "base_blob": "125ea5bb94377687a2a215a3e76a06da39651d5c",
+        "base_mode": "100644",
+        "patched_blob": "22ed8b96f59faa06670ecc06f9921ecc16b5c638",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc": {
+        "base_blob": "c611b5bd00796200b7edd6cc1ab438b0ac0d1c14",
+        "base_mode": "100644",
+        "patched_blob": "34555abc10b28c030b9b297d7445953eefdc5c57",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/font_collection.cc": {
+        "base_blob": "665ca01f0c8eabb13a74fa5272cd69d38daa0568",
+        "base_mode": "100644",
+        "patched_blob": "d4c876f41eb375993087386f13a4cbe49e93f47f",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/font_collection.h": {
+        "base_blob": "6727723cf3161070054080d7fa3386b9ce5ce08a",
+        "base_mode": "100644",
+        "patched_blob": "0d7c0b6d9d700527635092bea95f99bf42e9f72d",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/paragraph_style.cc": {
+        "base_blob": "54fc7a326a995157c672f9a4f0ca53b81d2eb97f",
+        "base_mode": "100644",
+        "patched_blob": "ca1378fa00bbffc7daf00e323c291eef19597fb2",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/paragraph_style.h": {
+        "base_blob": "ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9",
+        "base_mode": "100644",
+        "patched_blob": "77b44301b9b48c3fd350c6c6989cec4617585198",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/text_style.cc": {
+        "base_blob": "1ca829923970bed75bd1f66940e07704694fae17",
+        "base_mode": "100644",
+        "patched_blob": "b17297d6e8170fbc405e4b5e6c5c9307b7ca15c2",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/text_style.h": {
+        "base_blob": "a2a4a2cc40324ae3cae612fd050aacd682c4bae6",
+        "base_mode": "100644",
+        "patched_blob": "c54e87b9562cf083e160b2f2a07cc497c0020c67",
+        "patched_mode": "100644"
+      },
+      "packages/flutter/test/rendering/venus_cpp_text_layout_mvp_test.dart": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "4ed743f863915a8c08b49dc4bbc2ae488bed9b3c",
+        "patched_mode": "100644"
+      }
+    }
+  },
+  "canonical_source": "Venus scripts/flutter_sdk; Flutter checkout contains generated applied code only.",
+  "release_matrix": {
+    "sdk_hosts": [
+      {
+        "os": "macos",
+        "arch": "x64",
+        "format": "zip"
+      },
+      {
+        "os": "macos",
+        "arch": "arm64",
+        "format": "zip"
+      },
+      {
+        "os": "linux",
+        "arch": "x64",
+        "format": "tar.xz"
+      },
+      {
+        "os": "windows",
+        "arch": "x64",
+        "format": "zip"
+      }
+    ],
+    "application_targets": {
+      "android": {
+        "architectures": [
+          "arm",
+          "arm64",
+          "x64"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ]
+      },
+      "ios": {
+        "architectures": [
+          "arm64"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ],
+        "debug_simulator_architectures": [
+          "arm64",
+          "x64"
+        ]
+      },
+      "macos": {
+        "architectures": [
+          "arm64",
+          "x64"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ]
+      },
+      "windows": {
+        "architectures": [
+          "arm64",
+          "x64"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ]
+      },
+      "linux": {
+        "architectures": [
+          "arm64",
+          "x64"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ]
+      },
+      "web": {
+        "architectures": [
+          "javascript",
+          "wasm"
+        ],
+        "modes": [
+          "debug",
+          "profile",
+          "release"
+        ]
+      }
+    },
+    "recipe_groups": {
+      "linux": [
+        "linux_host_engine",
+        "linux_host_desktop_engine",
+        "linux_arm_host_engine",
+        "linux_android_debug_engine",
+        "linux_android_aot_engine",
+        "linux_web_engine_build"
+      ],
+      "macos": [
+        "mac_host_engine",
+        "mac_ios_engine",
+        "mac_android_aot_engine"
+      ],
+      "windows": [
+        "windows_host_engine",
+        "windows_arm_host_engine",
+        "windows_android_aot_engine"
+      ]
+    }
+  },
+  "release_entry": {
+    "template": "release_entry.sh",
+    "destination": "venus/release_sdk.sh",
+    "mode": "100755",
+    "sha256": "2b37931d3b1040f6fe2687a0834a409ee582c3c36d53fba92e1d6a4ca9f7a56e"
+  },
+  "release_readme": {
+    "template": "release_readme.md",
+    "destination": "venus/README.md",
+    "mode": "100644",
+    "sha256": "20e13697601a0245b63874f00ac93851e62d17eb6d4202ac0f8c1a77b2260840"
+  },
+  "release_env_example": {
+    "template": "release_env.example",
+    "destination": "venus/release_sdk.env.example",
+    "mode": "100644",
+    "sha256": "50dd31442c9f2b9fa23ff8d6e09e5c6ff0cdd02825656740ab7a6703beb911a0"
+  },
+  "release_ignore": {
+    "template": "release_ignore",
+    "destination": "venus/.gitignore",
+    "mode": "100644",
+    "sha256": "5354738fe1f119a2338458d82867f3c411bf616730f45b1091582b01261d76ee"
+  },
+  "release_tooling": {
+    "inject.py": {
+      "sha256": "2a8a5b3a5565255119e3a8bf01e84e298d6efde61a2cd8a3b0f1cb5bea7fc6e7",
+      "mode": "100644"
+    },
+    "release.py": {
+      "sha256": "29e751a09287c45b265f13304bf00d62002fa50c154f58bd4dfa062fa2e792ea",
+      "mode": "100755"
+    },
+    "release_sdk.sh": {
+      "sha256": "baa7752deb82bc51c2bf26f51cde2365be178254e958c80dfb085dd133974ad1",
+      "mode": "100755"
+    }
+  }
+}
