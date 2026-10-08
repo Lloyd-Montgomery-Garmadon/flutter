@@ -699,6 +699,9 @@ def verify_sdk(root, sdk_host, revision, exports, nm, readobj):
             directory = cache / f"artifacts/engine/darwin-x64{suffix}/FlutterMacOS.xcframework/macos-arm64_x86_64/FlutterMacOS.framework"
             need(any(p.is_file() and p.name == "FlutterMacOS" for p in directory.rglob("*")), f"Missing macOS {mode} framework")
             ios = cache / f"artifacts/engine/ios{suffix}/Flutter.xcframework"
+            license_file = ios.parent / "LICENSE"
+            need(license_file.is_file() and digest(license_file) == digest(root / "LICENSE"),
+                 f"Missing/wrong iOS {mode} LICENSE required by Flutter cache")
             need((ios / "ios-arm64/Flutter.framework/Flutter").is_file(), f"Missing iOS {mode} device framework")
             need((ios / "ios-arm64_x86_64-simulator/Flutter.framework/Flutter").is_file(), f"Missing iOS {mode} simulator framework")
             ios_snapshot = ios.parent / "gen_snapshot_arm64"
@@ -793,6 +796,12 @@ def package(args):
     for p in artifacts["download.flutter.io"]:
         extract_zip(p, cache / "venus-maven")
     overlays = sdk_overlays(root, revision)
+    if sdk_host.startswith("macos-"):
+        # EngineCachedArtifact.updateInner copies the SDK LICENSE to these
+        # IOSEngineArtifacts.getLicenseDirs; missing copies trigger downloads.
+        for mode in MODES:
+            suffix = "" if mode == "debug" else f"-{mode}"
+            shutil.copy2(root / "LICENSE", cache / f"artifacts/engine/ios{suffix}/LICENSE")
     mingit = install_mingit(root, output, args.mingit_archive, args.mingit_sha256) if sdk_host.startswith("windows") else None
     for name in ("engine", "engine-dart-sdk", *STAMP_NAMES):
         (cache / f"{name}.stamp").write_text(revision + "\n")
