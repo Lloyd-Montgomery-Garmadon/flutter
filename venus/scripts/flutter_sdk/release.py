@@ -805,7 +805,7 @@ def package(args):
     mingit = install_mingit(root, output, args.mingit_archive, args.mingit_sha256) if sdk_host.startswith("windows") else None
     for name in ("engine", "engine-dart-sdk", *STAMP_NAMES):
         (cache / f"{name}.stamp").write_text(revision + "\n")
-    (cache / "engine.realm").write_text("")
+    (cache / "engine.realm").write_text("\n")
     now = time.time()
     write_json(cache / "engine_stamp.json", {"build_date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
         "build_time_ms": int(now * 1000), "git_revision": revision,
