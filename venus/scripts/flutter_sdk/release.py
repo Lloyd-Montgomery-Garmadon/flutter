@@ -468,14 +468,18 @@ def build(args):
     print(output / "receipt.json")
 
 
-def extract_zip(archive, root):
+def extract_zip(archive, root, package_name=None):
     """Reject traversal and conflicting files; preserve safe framework symlinks."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    package_root = inside(root, package_name) if package_name is not None else None
     links = []
     with zipfile.ZipFile(archive) as z:
         for entry in z.infolist():
-            destination = inside(root, entry.filename)
+            # Both official package archives carry this root-level notice.
+            # Keep each notice with its package instead of overwriting either.
+            destination = inside(package_root if package_root is not None and
+                                 entry.filename == "LICENSE.zip_old_location.md" else root, entry.filename)
             mode = entry.external_attr >> 16
             if entry.is_dir():
                 destination.mkdir(parents=True, exist_ok=True)
@@ -776,7 +780,8 @@ def package(args):
     for destination, target in required.items():
         candidates = artifacts[destination]
         need(len({digest(p) for p in candidates}) == 1, f"Conflicting archives for {destination}")
-        extract_zip(candidates[0], inside(cache, target) if target else cache)
+        package_name = destination[:-4] if destination in {"sky_engine.zip", "flutter_gpu.zip"} else None
+        extract_zip(candidates[0], inside(cache, target) if target else cache, package_name=package_name)
         used[destination] = digest(candidates[0])
     for p in artifacts["download.flutter.io"]:
         extract_zip(p, cache / "venus-maven")
@@ -828,6 +833,7 @@ def package(args):
             for p in sorted(package_root.iterdir()):
                 t.add(p, arcname=p.name)
     delivery = {"schema_version": 1, "source": identity, "host": sdk_host, "input_receipts": input_receipts,
+                "packager_sha256": digest(__file__),
                 "used_archives": used, "sdk_source_overlays": overlays, "native": native,
                 "version": version, "default_web_build": "PASS", "cross_platform_execution": "NOT_RUN",
                 "mingit": mingit,
