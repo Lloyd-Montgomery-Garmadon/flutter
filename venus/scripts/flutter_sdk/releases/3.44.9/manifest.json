@@ -103,7 +103,7 @@
   "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration; the phase2 venus_text_layout_node_core.cc change remains deferred.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "994d9757c1699e0fb57667484eb74e048df198f7616076382491c2b7ca8035a4",
+    "sha256": "a99fc45d8ed23dcc861c1b4b7108173756d45378254209f567b6ae5f4236faa9",
     "expected_file_count": 43,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
@@ -247,7 +247,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "d786352c133d08c0b73b4f33eadd0baf8fd0a4f1",
+        "patched_blob": "c947e8a1057741f5646336969299a9e9aff3566a",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
