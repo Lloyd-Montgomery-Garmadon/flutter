@@ -523,7 +523,7 @@
       "mode": "100644"
     },
     "release.py": {
-      "sha256": "4c6dae10724754736c29a9b066a2027fcdc3e67ea8f66b9ce569b4bbbb738908",
+      "sha256": "edfedd30972833c90a4c37309984a0822a078a87845ba3cce5dec51bfd9f614b",
       "mode": "100755"
     },
     "release_sdk.sh": {

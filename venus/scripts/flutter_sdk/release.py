@@ -480,6 +480,10 @@ def extract_zip(archive, root, package_name=None):
             # Keep each notice with its package instead of overwriting either.
             destination = inside(package_root if package_root is not None and
                                  entry.filename == "LICENSE.zip_old_location.md" else root, entry.filename)
+            # Match ArtifactUpdater._removeDenylistedFiles in Flutter cache.dart:
+            # these are archive producer signing lists, not SDK runtime inputs.
+            if destination.name in {"entitlements.txt", "without_entitlements.txt", "unsigned_binaries.txt"}:
+                continue
             mode = entry.external_attr >> 16
             if entry.is_dir():
                 destination.mkdir(parents=True, exist_ok=True)
