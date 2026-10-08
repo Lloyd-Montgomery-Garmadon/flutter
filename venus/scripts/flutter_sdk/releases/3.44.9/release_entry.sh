@@ -18,14 +18,23 @@ export VENUS_RELEASE_DIR=${VENUS_RELEASE_DIR:-"${flutter_root}-sdk-release"}
 args=("${@}")
 (( ${#args[@]} )) || args=(release)
 has_manifest=false
+has_repository=false
 for arg in "$@"; do
   [[ "$arg" != --manifest ]] || has_manifest=true
+  [[ "$arg" != --repository ]] || has_repository=true
 done
 if [[ "$has_manifest" == false ]]; then
   tag=$("$python" -c 'import json,sys; sys.stdout.reconfigure(encoding="utf-8", newline="\n"); print(json.load(open(sys.argv[1]))["official_tag"])' \
     "$flutter_root/docs/venus/source.json")
   args+=(--manifest "$flutter_root/venus/scripts/flutter_sdk/releases/$tag/manifest.json")
 fi
+case "${args[0]}" in
+  release|build|package)
+    if [[ "$has_repository" == false ]]; then
+      args+=(--repository "$flutter_root")
+    fi
+    ;;
+esac
 case "${args[0]}" in
   release|build) args+=(--from-checkout "$flutter_root") ;;
   clean) args+=(--flutter-root "$flutter_root") ;;
