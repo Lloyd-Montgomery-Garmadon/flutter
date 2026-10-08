@@ -679,6 +679,9 @@ def verify_sdk(root, sdk_host, revision, exports, nm, readobj):
     native = {}
     for p in (cache / "artifacts/engine").rglob("*"):
         if p.is_file() and not p.is_symlink() and p.name in RUNTIMES:
+            # dSYM DWARF files share runtime basenames but are debug symbols.
+            if any(part.endswith(".dSYM") for part in p.parts):
+                continue
             rel = p.relative_to(cache).as_posix()
             expected = None
             for match in re.finditer(r"(?:android|linux|windows)-(arm64|x64|x86|arm)(?:-|/)", rel):
@@ -693,7 +696,7 @@ def verify_sdk(root, sdk_host, revision, exports, nm, readobj):
     for mode in MODES:
         suffix = "" if mode == "debug" else f"-{mode}"
         if os_name == "macos":
-            directory = cache / f"artifacts/engine/darwin-x64{suffix}/FlutterMacOS.framework"
+            directory = cache / f"artifacts/engine/darwin-x64{suffix}/FlutterMacOS.xcframework/macos-arm64_x86_64/FlutterMacOS.framework"
             need(any(p.is_file() and p.name == "FlutterMacOS" for p in directory.rglob("*")), f"Missing macOS {mode} framework")
             ios = cache / f"artifacts/engine/ios{suffix}/Flutter.xcframework"
             need((ios / "ios-arm64/Flutter.framework/Flutter").is_file(), f"Missing iOS {mode} device framework")
