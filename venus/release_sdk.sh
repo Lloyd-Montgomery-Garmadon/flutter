@@ -14,7 +14,7 @@ if [[ "${1:-}" == source ]]; then
 fi
 entry="$flutter_root/venus/scripts/flutter_sdk/release_sdk.sh"
 [[ -f "$entry" && ! -L "$entry" ]] || { printf 'STOP: embedded release tools missing; regenerate from Venus.\n' >&2; exit 2; }
-export VENUS_RELEASE_DIR=${VENUS_RELEASE_DIR:-"${flutter_root}-sdk-release"}
+export VENUS_RELEASE_DIR=${VENUS_RELEASE_DIR:-"${flutter_root}-sdk-release-3.44.9"}
 args=("${@}")
 (( ${#args[@]} )) || args=(release)
 has_manifest=false

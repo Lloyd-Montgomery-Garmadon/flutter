@@ -13,7 +13,7 @@
 在 Mac 从源码构建 Android、iOS、Web、macOS 引擎并打包。
 包含支持的架构以及 debug/profile/release 模式。
 首次构建自动从当前干净、身份匹配的 Flutter checkout 导出源码快照。
-SDK 和压缩包默认输出到当前 Flutter 目录旁的 `<目录名>-sdk-release/sdk/`，
+SDK 和压缩包默认输出到当前 Flutter 目录旁的 `<目录名>-sdk-release-3.44.9/sdk/`，
 可在本目录的 `release_sdk.env` 中设置 `VENUS_RELEASE_DIR` 修改。
 `clean` 删除源码快照、构建目录和打包临时缓存，保留最终 SDK、压缩包和交付记录；未打包成功时拒绝清理。
 只构建用 `./release_sdk.sh build`，已有构建结果只打包用 `./release_sdk.sh package`。
@@ -21,7 +21,9 @@ SDK 和压缩包默认输出到当前 Flutter 目录旁的 `<目录名>-sdk-rele
 
 ## 设置 Flutter 环境变量
 
-先进入打包或解压后的 Flutter SDK 根目录（包含 `bin/flutter` 的目录），再执行（Bash/Zsh）：
+先进入最终 Flutter SDK 根目录：默认是当前 Flutter 目录旁的
+`<目录名>-sdk-release-3.44.9/sdk/flutter/`；若修改发布根或解压位置，进入对应的
+SDK 根目录（包含 `bin/flutter`），再执行（Bash/Zsh）：
 
 ```bash
 export FLUTTER_ROOT="$(pwd -P)"
