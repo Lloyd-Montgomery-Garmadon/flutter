@@ -32,7 +32,7 @@ group("generate_snapshot_bins") {
   public_deps = []
 
   # Build gen_snapshot for the currently specified target_cpu.
-  if (host_os == "mac" &&
+  if (host_os == "mac" && target_cpu != "x86" &&
       (target_os == "mac" || target_os == "ios" || target_os == "android")) {
     # For macOS target builds: needed for both target CPUs (arm64, x64).
     public_deps += [ ":create_macos_gen_snapshots" ]
@@ -70,12 +70,18 @@ group("generate_snapshot_bins") {
 # See: `bin_to_linkable` rules below that build these outputs into linkable form
 # See: https://github.com/flutter/flutter/wiki/Flutter-engine-operation-in-AOT-Mode
 compiled_action("generate_snapshot_bin") {
-  if (target_cpu == "x86" && host_os == "linux") {
+  if (target_cpu == "x86" && (host_os == "linux" || host_os == "mac")) {
     # By default Dart will create a 32-bit gen_snapshot host binary if the target
     # platform is 32-bit.  Override this to create a 64-bit gen_snapshot for x86
     # targets because some host platforms may not support 32-bit binaries.
     tool = "$dart_src/runtime/bin:gen_snapshot_host_targeting_host"
-    toolchain = "//build/toolchain/$host_os:clang_x64"
+    if (host_os == "mac") {
+      # Modern macOS cannot run a 32-bit host VM. Use the host-only
+      # core snapshot producer; Android x86 has no AOT gen_snapshot.
+      toolchain = host_toolchain
+    } else {
+      toolchain = "//build/toolchain/$host_os:clang_x64"
+    }
   } else {
     tool = "$dart_src/runtime/bin:gen_snapshot"
   }
@@ -186,7 +192,7 @@ if (host_os == "mac" && target_os != "mac" &&
 # platform.
 #
 # This target is used for builds targeting iOS, macOS, and Android.
-if (host_os == "mac" &&
+if (host_os == "mac" && target_cpu != "x86" &&
     (target_os == "mac" || target_os == "ios" || target_os == "android")) {
   template("build_mac_gen_snapshot") {
     assert(defined(invoker.host_arch))

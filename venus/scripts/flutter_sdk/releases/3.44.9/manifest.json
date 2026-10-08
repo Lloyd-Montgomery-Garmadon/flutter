@@ -30,6 +30,10 @@
     {
       "path": "Skia modules/skparagraph/src/TextLine.cpp",
       "reason": "Port ellipsis honorZeroHeight propagation without newer official isHyphen parameter."
+    },
+    {
+      "path": "engine/src/flutter/lib/snapshot/BUILD.gn",
+      "reason": "Darwin Android x86 debug uses the host-only core snapshot producer and excludes unsupported x86 AOT host tools. Other targets and Linux producers remain unchanged."
     }
   ],
   "dependencies": {
@@ -103,8 +107,8 @@
   "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration; the phase2 venus_text_layout_node_core.cc change remains deferred.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "a99fc45d8ed23dcc861c1b4b7108173756d45378254209f567b6ae5f4236faa9",
-    "expected_file_count": 43,
+    "sha256": "db7beafdf53dbfaa26bfd2e6577da47f8582f771c86154acd9df267935deb150",
+    "expected_file_count": 44,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
         "base_blob": "9614f9b1f82deb442a9538ad3ef3abe4371b3fce",
@@ -362,6 +366,12 @@
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
         "patched_blob": "4ed743f863915a8c08b49dc4bbc2ae488bed9b3c",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/snapshot/BUILD.gn": {
+        "base_blob": "e4b52cac219859cd29f90be9adec0d7e8458a8f7",
+        "base_mode": "100644",
+        "patched_blob": "ceef6dd06b99a00092c25784e8d53c908f740eec",
         "patched_mode": "100644"
       }
     }
