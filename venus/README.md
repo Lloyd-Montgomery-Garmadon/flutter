@@ -21,12 +21,13 @@ SDK 和压缩包默认输出到当前 Flutter 目录旁的 `<目录名>-sdk-rele
 
 ## 设置 Flutter 环境变量
 
-先进入最终 Flutter SDK 根目录：默认是当前 Flutter 目录旁的
-`<目录名>-sdk-release-3.44.9/sdk/flutter/`；若修改发布根或解压位置，进入对应的
-SDK 根目录（包含 `bin/flutter`），再执行（Bash/Zsh）：
+最终 Flutter SDK 根目录默认是当前 Flutter 目录旁的
+`<目录名>-sdk-release-3.44.9/sdk/flutter/`（包含 `bin/flutter`）。
+在本目录执行（Bash/Zsh），直接读取打包入口已确定的路径，
+无需再传发布目录或填写版本：
 
 ```bash
-export FLUTTER_ROOT="$(pwd -P)"
+export FLUTTER_ROOT="$(./release_sdk.sh sdk-path)"
 export PATH="$FLUTTER_ROOT/bin:$PATH"
 hash -r
 which flutter

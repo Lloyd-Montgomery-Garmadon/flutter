@@ -497,13 +497,13 @@
     "template": "release_entry.sh",
     "destination": "venus/release_sdk.sh",
     "mode": "100755",
-    "sha256": "7e48fc92605a9d73222db4d6a5a80b86b5918ce8a6d4905c4ae89bc4719fcaa4"
+    "sha256": "1961fa34e0a871af82edbe9890542bd8922660159b0c412ec16459309632d490"
   },
   "release_readme": {
     "template": "release_readme.md",
     "destination": "venus/README.md",
     "mode": "100644",
-    "sha256": "691040a5ed2f591b84371be4d8eb4166e6fbf66739328b687640fa3642a1d0d9"
+    "sha256": "8308bef859ac7e7928f43ec55956cc44c704f58de8e658c6dc471ab2172d1217"
   },
   "release_env_example": {
     "template": "release_env.example",
