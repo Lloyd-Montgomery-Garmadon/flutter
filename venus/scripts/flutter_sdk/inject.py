@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import os
+import tempfile
 
 DEFAULT_MANIFEST = Path(__file__).parent / "releases/3.44.9/manifest.json"
 GENERATED_FILES = {
@@ -53,12 +55,12 @@ def regular_input(root, relative):
     return path
 
 
-def generated_inputs(manifest, manifest_path):
+def generated_inputs(manifest, manifest_path, tooling_root=None):
     """One fixed inventory for installation, Git staging and final identity checks."""
     prefix = "venus/scripts/flutter_sdk/"
     result = {manifest[key]["destination"]: (manifest_path.parent / manifest[key]["template"], manifest[key]["mode"])
               for key in GENERATED_FILES}
-    result.update({prefix + name: (Path(__file__).parent / name, mode) for name, mode in RELEASE_TOOLS.items()})
+    result.update({prefix + name: ((tooling_root or Path(__file__).parent) / name, mode) for name, mode in RELEASE_TOOLS.items()})
     version = prefix + "releases/" + manifest["official_tag"] + "/"
     result.update({version + name: (manifest_path.parent / name, "100644")
                    for name in ("manifest.json", "native.patch", "skia.patch", *VERSION_FILES.values())})
@@ -75,7 +77,7 @@ def check_whitespace(root, manifest, *revisions):
     git(root, "diff", "--check", *revisions, "--", ".", *(":(exclude)" + prefix + name for name in excluded))
 
 
-def load_manifest(path):
+def load_manifest(path, tooling_root=None):
     path = path.resolve()
     manifest = json.loads(path.read_text())
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", manifest["official_tag"]):
@@ -110,7 +112,7 @@ def load_manifest(path):
     if set(tools) != set(RELEASE_TOOLS):
         raise ValueError("Release tool inventory differs")
     for name, mode in RELEASE_TOOLS.items():
-        tool = regular_input(Path(__file__).parent, name)
+        tool = regular_input(tooling_root or Path(__file__).parent, name)
         # Windows chmod has no POSIX execute bit; final Git tree modes are checked below.
         if tools[name] != {"sha256": sha256(tool), "mode": mode} or (sys.platform != "win32" and (
                 "100755" if tool.stat().st_mode & 0o111 else "100644") != mode):
@@ -181,7 +183,7 @@ def clean(root):
         raise ValueError("Checkout has local changes; preserve them and use a fresh destination")
 
 
-def check(root, manifest, manifest_path):
+def check(root, manifest, manifest_path, tooling_root=None):
     exact_repo(root)
     clean(root)
     base = manifest["official_commit"]
@@ -191,7 +193,7 @@ def check(root, manifest, manifest_path):
         raise ValueError("Official tag identity differs")
     files = manifest["native_patch"]["files"]
     changed = set(git(root, "diff", "--name-only", base, "HEAD").splitlines())
-    generated = generated_inputs(manifest, manifest_path)
+    generated = generated_inputs(manifest, manifest_path, tooling_root)
     if changed != set(files) | {"docs/venus/source.json", *generated}:
         raise ValueError("Changed-file set differs; expected native patch, provenance and generated release files")
     provenance = json.loads((root / "docs/venus/source.json").read_text())
@@ -330,6 +332,7 @@ def main():
             command.add_argument("--receipt", type=Path, required=True)
         if name == "snapshot":
             command.add_argument("--reuse", action="store_true", help="Reuse only an identical, complete snapshot")
+            command.add_argument("--refresh", action="store_true", help="Refresh a verified snapshot to a checked descendant")
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     manifest = load_manifest(manifest_path)
@@ -357,12 +360,27 @@ def main():
                               ("official_commit", manifest["official_commit"])):
             if receipt.get(key) != expected:
                 raise ValueError(f"Source snapshot identity differs: {key}")
-        root, branch = clone_base(args, manifest)
-        guard_preflight(preflight(root, manifest))
+        existing = root.exists()
+        if existing:
+            # Validate the old installed payload before moving a persistent builder.
+            tools = regular_input(root, "venus/scripts/flutter_sdk/inject.py").parent
+            old_path = regular_input(tools, "releases/" + manifest["official_tag"] + "/manifest.json")
+            old = load_manifest(old_path, tools)
+            check(root, old, old_path, tools)
+            if old["official_commit"] != manifest["official_commit"]:
+                raise ValueError("Existing builder belongs to another official source")
+        else:
+            root, branch = clone_base(args, manifest)
+            guard_preflight(preflight(root, manifest))
         git(root, "fetch", str(args.bundle.resolve()), "HEAD")
         if git(root, "rev-parse", "FETCH_HEAD") != receipt["flutter_commit"]:
             raise ValueError("Bundle revision differs from the source receipt")
-        git(root, "switch", "-c", branch, "FETCH_HEAD")
+        if existing:
+            if git(root, "merge-base", "HEAD", "FETCH_HEAD") != git(root, "rev-parse", "HEAD"):
+                raise ValueError("Existing builder is not an ancestor of this snapshot; preserve its cache")
+            git(root, "merge", "--ff-only", "FETCH_HEAD")
+        else:
+            git(root, "switch", "-c", branch, "FETCH_HEAD")
         check(root, manifest, manifest_path)
         print("PASS: restored exact shared source commit")
     elif args.command == "snapshot":
@@ -371,14 +389,26 @@ def main():
         if args.bundle.is_symlink() or args.receipt.is_symlink() or bundle.is_relative_to(root) or args.receipt.resolve().is_relative_to(root):
             raise ValueError("Snapshot outputs must be new paths outside the Flutter checkout")
         if bundle.exists() or args.receipt.exists():
-            if not args.reuse or not bundle.is_file() or not args.receipt.is_file():
+            if not (args.reuse or args.refresh) or not bundle.is_file() or not args.receipt.is_file():
                 raise ValueError("Snapshot outputs must be new paths or a complete identical reusable snapshot")
             receipt["bundle_sha256"] = sha256(bundle)
-            if json.loads(args.receipt.read_text()) != receipt:
-                raise ValueError("Existing source snapshot differs from the checked checkout")
-            if git(root, "bundle", "list-heads", str(bundle), "HEAD").split() != [receipt["flutter_commit"], "HEAD"]:
+            previous = json.loads(args.receipt.read_text())
+            if previous.get("bundle_sha256") != receipt["bundle_sha256"] or git(root, "bundle", "list-heads", str(bundle), "HEAD").split() != [previous["flutter_commit"], "HEAD"]:
                 raise ValueError("Existing source bundle HEAD differs from the checked checkout")
-            print("PASS: identical source bundle and receipt reused")
+            if previous == receipt:
+                print("PASS: identical source bundle and receipt reused")
+                return
+            if not args.refresh or previous.get("official_commit") != manifest["official_commit"] or git(root, "merge-base", previous["flutter_commit"], "HEAD") != previous["flutter_commit"]:
+                raise ValueError("Existing source snapshot differs from the checked checkout")
+            with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=bundle.parent) as temporary:
+                updated = Path(temporary) / "source.bundle"
+                git(root, "bundle", "create", str(updated), manifest["official_commit"] + "..HEAD")
+                receipt["bundle_sha256"] = sha256(updated)
+                updated_receipt = Path(temporary) / "source.json"
+                write_json(updated_receipt, receipt)
+                os.replace(updated, bundle)
+                os.replace(updated_receipt, args.receipt)
+            print("PASS: source snapshot advanced to checked descendant")
             return
         bundle.parent.mkdir(parents=True, exist_ok=True)
         git(root, "bundle", "create", str(bundle), manifest["official_commit"] + "..HEAD")

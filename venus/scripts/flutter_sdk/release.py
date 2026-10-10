@@ -3,11 +3,14 @@
 
 This file belongs to Venus. Native patches and the injector are read from Venus;
 the Flutter checkout is a generated build input. See README.md for the workflow.
-Only fresh build/package directories are written; clean removes verified intermediates.
+Native workspaces are incremental; delivery outputs are replaced only after validation.
 """
 from __future__ import annotations
 
 import argparse
+import ast
+import copy
+from contextlib import contextmanager, ExitStack
 import hashlib
 import json
 import os
@@ -76,6 +79,104 @@ def write_json(path, data):
     need(not path.exists(), f"Refuse to overwrite receipt: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def physical(path):
+    path = Path(path).absolute()
+    for part in (path, *path.parents):
+        need(not part.is_symlink(), f"Refuse output through symlink: {part}")
+    return path.resolve()
+
+
+def replace_json(path, data):
+    path = physical(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        json.dump(data, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def workspace_lock(paths):
+    """Lock the source pair and destination across every stage, including cleanup."""
+    with ExitStack() as stack:
+        for path in sorted({physical(p) for p in paths}):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock = path.with_name("." + path.name + ".venus-sdk.lock")
+            need(not lock.is_symlink(), f"Refuse symlink lock: {lock}")
+            stream = stack.enter_context(lock.open("a+b"))
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    if lock.stat().st_size == 0:
+                        stream.write(b"\0")
+                        stream.flush()
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    stack.callback(lambda s=stream: (s.seek(0), msvcrt.locking(s.fileno(), msvcrt.LK_UNLCK, 1)))
+                else:
+                    import fcntl
+                    fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                raise Failure(f"SDK workspace is busy: {path}") from error
+        yield
+
+
+def locked_run(args):
+    need(args.argv and args.argv[0] == "--", "locked-run requires -- COMMAND")
+    with workspace_lock(args.lock):
+        env = dict(os.environ, VENUS_SDK_UNDER_LOCK="1")
+        # Only children of this wrapper receive the internal nesting marker.
+        return subprocess.call(args.argv[1:], env=env)
+
+
+@contextmanager
+def staged_output(output, owner, validate_existing):
+    """Keep the old delivery on failure; remove only our obsolete staging copies."""
+    output = physical(output)
+    need(output != Path(output.anchor) and output != Path.home().resolve(), "Unsafe output directory")
+    pending = output.with_name(output.name + ".pending")
+    previous = output.with_name(output.name + ".previous")
+    marker = ".venus-sdk-stage.json"
+    for path in (pending, previous):
+        physical(path)
+        if path.exists():
+            need(path.is_dir() and read_json(path / marker) == owner, f"Unowned staging directory: {path}")
+    if previous.exists() and not output.exists():
+        validate_existing(previous)
+        previous.rename(output)
+    if output.exists():
+        validate_existing(output)
+    if previous.exists():
+        shutil.rmtree(previous)
+    if pending.exists():
+        shutil.rmtree(pending)
+    pending.mkdir(parents=True)
+    write_json(pending / marker, owner)
+    try:
+        yield pending
+        validate_existing(pending)
+        if output.exists():
+            # Older deliveries predate the staging marker; validation establishes ownership.
+            replace_json(output / marker, owner)
+            output.rename(previous)
+        try:
+            pending.rename(output)
+        except OSError:
+            if previous.exists():
+                previous.rename(output)
+            raise
+        if previous.exists():
+            shutil.rmtree(previous)
+    except BaseException:
+        if pending.exists():
+            shutil.rmtree(pending)
+        raise
 
 
 def run(argv, cwd=None, env=None, capture=False):
@@ -355,7 +456,39 @@ def plan(args):
     print(json.dumps(data, indent=2))
 
 
+def validate_build_output(path, official_commit):
+    receipt = read_json(physical(path / "receipt.json"))
+    need(receipt["source"]["official_commit"] == official_commit and
+         receipt["finished_ns"] > receipt["started_ns"] and receipt.get("builds"), "Unowned/incomplete build output")
+    for item in receipt["archives"]:
+        archive = physical(inside(path, item["file"]))
+        need(archive.is_file() and digest(archive) == item["sha256"], f"Artifact hash mismatch: {archive}")
+
+
 def build(args):
+    _, _, spec, _ = context(args)
+    output = physical(args.output)
+    owner = {"kind": "native-archives", "official_commit": spec["official_commit"]}
+    state_path = output.parent / ".venus-native-cache.json"
+    try:
+        with staged_output(output, owner, lambda p: validate_build_output(p, spec["official_commit"])) as pending:
+            stage_args = copy.copy(args)
+            stage_args.output = pending
+            build_into(stage_args, output)
+        state = read_json(state_path)
+        state.update(status="complete", receipt_sha256=digest(output / "receipt.json"))
+        replace_json(state_path, state)
+    except BaseException:
+        if state_path.is_file():
+            state = read_json(state_path)
+            if state.get("status") == "building":
+                state["status"] = "failed"
+                replace_json(state_path, state)
+        raise
+    print(output / "receipt.json")
+
+
+def build_into(args, previous_output):
     _, manifest, spec, injector = context(args)
     root = Path(args.flutter_root).resolve()
     identity = source_identity(args, manifest)
@@ -365,13 +498,10 @@ def build(args):
     actual_host = host()
     need(set(groups) <= set(WORKERS.get(actual_host, ())), f"Groups {groups} cannot run on {actual_host}; see plan")
     src = root / "engine/src"
-    need(not (src / "out").exists(), "Fresh engine/src/out required; old native outputs are never reused")
-    output = Path(args.output).resolve()
-    need(not output.exists(), f"Fresh build output required: {output}")
-    output.mkdir(parents=True)
+    output = physical(args.output)
     recipes_to_run = recipes(root, groups, sdk_host=actual_host)
     configs = [b["ninja"]["config"] for _, _, recipe in recipes_to_run for b in recipe["builds"]]
-    need(len(configs) == len(set(configs)), "Repeated recipe/output config; use separate fresh worker checkouts")
+    need(len(configs) == len(set(configs)), "Repeated recipe/output config")
     custom_vars = {"setup_githooks": False, "use_rbe": False}
     # One sync loads the union of dependencies needed by this worker's groups.
     for _, _, recipe in recipes_to_run:
@@ -382,16 +512,26 @@ def build(args):
                     custom_vars[key] = bool(custom_vars.get(key, False) or value)
     if "android" in groups:
         custom_vars.update(download_android_deps=True, download_jdk=True)
-    gclient = shutil.which("gclient")
-    need(gclient, "depot_tools gclient must be on PATH")
     config = root / ".gclient"
-    need(not config.exists(), "Existing .gclient ownership is ambiguous; use a fresh injector/bundle checkout")
-    config.write_text("solutions = " + repr([{"name": ".", "url": spec["upstream"], "managed": False,
-                                             "deps_file": "DEPS", "custom_deps": {}, "custom_vars": custom_vars}]) + "\n")
+    solution = [{"name": ".", "url": spec["upstream"], "managed": False,
+                 "deps_file": "DEPS", "custom_deps": {}, "custom_vars": custom_vars}]
+    if config.exists():
+        need(not config.is_symlink() and config.read_text().startswith("solutions = ") and
+             ast.literal_eval(config.read_text().split("=", 1)[1].strip()) == solution, "Existing .gclient ownership differs")
+    else:
+        need(not (src / "out").exists(), "Unowned native cache without .gclient")
+        config.write_text("solutions = " + repr(solution) + "\n")
     env = dict(os.environ)
     for key in ("FLUTTER_PREBUILT_ENGINE_VERSION", "FLUTTER_REALM", "FLUTTER_STORAGE_BASE_URL", "DART_SDK_BASE_URL"):
         env.pop(key, None)
-    run([gclient, "sync", "--no-history"], cwd=root, env=env)
+    state_path = output.parent / ".venus-native-cache.json"
+    legacy_path = previous_output / "receipt.json"
+    reuse = state_path.exists() or ((src / "out").exists() and legacy_path.is_file())
+    need(not (src / "out").exists() or reuse, "Unowned native cache; preserve it and use a verified workspace")
+    if not reuse:
+        gclient = shutil.which("gclient")
+        need(gclient, "depot_tools gclient must be on PATH")
+        run([gclient, "sync", "--no-history"], cwd=root, env=env)
     inject(injector, manifest, root, "check")
     inject(injector, manifest, root, "skia", apply=True)
     exports = required_exports(root)
@@ -399,16 +539,48 @@ def build(args):
     readobj = find_tool(root, args.readobj, "llvm-readobj")
     ninja = root / ("third_party/ninja/ninja.exe" if platform.system() == "Windows" else "third_party/ninja/ninja")
     need(ninja.is_file(), f"DEPS ninja missing: {ninja}")
-    receipt = {"schema_version": 1, "source": identity, "host": actual_host, "groups": groups,
-               "fresh_outputs": True, "started_ns": time.time_ns(), "gclient_variables": custom_vars,
+    recipe_hashes = {path.relative_to(root).as_posix(): digest(path) for _, path, _ in recipes_to_run}
+    tool_hashes = {"ninja": digest(ninja), "llvm_nm": digest(nm), "llvm_readobj": digest(readobj)}
+    # Clang frontends share one large LLVM binary; hash each physical file once.
+    compiler_hashes = {nm.resolve(): tool_hashes["llvm_nm"], readobj.resolve(): tool_hashes["llvm_readobj"]}
+    for compiler in sorted((src / "flutter/buildtools").glob("*/clang/bin/clang*")):
+        if compiler.is_file():
+            resolved = compiler.resolve()
+            if resolved not in compiler_hashes:
+                compiler_hashes[resolved] = digest(resolved)
+            tool_hashes[compiler.relative_to(root).as_posix()] = compiler_hashes[resolved]
+    key = {"schema_version": 1, "root": str(root), "official_commit": spec["official_commit"],
+           "host": actual_host, "deps_sha256": digest(root / "DEPS"), "gclient_variables": custom_vars,
+           "recipes": recipe_hashes, "tools": tool_hashes}
+    if state_path.exists():
+        need(read_json(physical(state_path))["key"] == key, "Native cache toolchain/recipe/DEPS identity differs; preserve the workspace")
+    elif reuse:
+        legacy = read_json(legacy_path)
+        need(legacy.get("fresh_outputs") is True and legacy["source"]["official_commit"] == spec["official_commit"] and
+             legacy["host"] == actual_host and legacy["recipes"] == recipe_hashes and
+             legacy["gclient_variables"] == custom_vars and legacy["finished_ns"] > legacy["started_ns"], "Legacy cache identity differs")
+        need(run(["git", "-C", root, "merge-base", legacy["source"]["flutter_commit"], "HEAD"], capture=True) == legacy["source"]["flutter_commit"], "Legacy cache source is not an ancestor")
+        for name in ("llvm_nm", "llvm_readobj"):
+            need(legacy["inspection_tools"][name]["sha256"] == tool_hashes[name], "Legacy LLVM identity differs")
+        old_builds = {b["name"]: b for b in legacy["builds"]}
+        for _, _, recipe in recipes_to_run:
+            for b in recipe["builds"]:
+                previous = old_builds[b["name"]]
+                actual = physical(inside(src, "out/" + b["ninja"]["config"]))
+                need(previous["gn"] == gn_arguments(b) and previous["ninja_targets"] == b["ninja"].get("targets", []) and
+                     digest(actual / "args.gn") == previous["args_gn_sha256"], "Legacy GN cache differs")
+    started_ns = time.time_ns()
+    replace_json(state_path, {"key": key, "status": "building", "started_ns": started_ns, "source": identity})
+    receipt = {"schema_version": 2, "source": identity, "host": actual_host, "groups": groups,
+               "build_mode": "incremental", "cache_key_sha256": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(),
+               "started_ns": started_ns, "gclient_variables": custom_vars,
                "recipes": {}, "builds": [], "archives": [],
                "inspection_tools": {"llvm_nm": {"sha256": digest(nm), "version": run([nm, "--version"], capture=True)},
                                     "llvm_readobj": {"sha256": digest(readobj), "version": run([readobj, "--version"], capture=True)}}}
     for group, recipe_path, recipe in recipes_to_run:
         receipt["recipes"][recipe_path.relative_to(root).as_posix()] = digest(recipe_path)
         for b in recipe["builds"]:
-            config_path = inside(src, "out/" + b["ninja"]["config"])
-            need(not config_path.exists(), f"Output collision/old output: {config_path}")
+            config_path = physical(inside(src, "out/" + b["ninja"]["config"]))
             started = time.time_ns()
             gn = gn_arguments(b)
             run([sys.executable, src / "flutter/tools/gn", *gn], cwd=src, env=env)
@@ -430,7 +602,7 @@ def build(args):
                     native[wasm.relative_to(src).as_posix()] = {"sha256": digest(wasm), "architectures": ["wasm32"], "exports": []}
             receipt["builds"].append({"name": b["name"], "group": group, "gn": gn,
                                        "args_gn_sha256": digest(config_path / "args.gn"), "ninja_targets": b["ninja"].get("targets", []), "started_ns": started,
-                                       "finished_ns": time.time_ns(), "native": native})
+                                       "finished_ns": time.time_ns(), "validated_current_inputs": True, "native": native})
         # Reuse official Apple framework/snapshot postprocessors. LUCI docs,
         # upload and official export-whitelist steps do not produce SDK artifacts.
         for task in recipe.get("generators", {}).get("tasks", []):
@@ -465,7 +637,6 @@ def build(args):
     inject(injector, manifest, root, "skia")
     receipt["finished_ns"] = time.time_ns()
     write_json(output / "receipt.json", receipt)
-    print(output / "receipt.json")
 
 
 def extract_zip(archive, root, package_name=None):
@@ -521,7 +692,15 @@ def artifact_map(receipt_paths, identity):
     for path in receipt_paths:
         path = Path(path).resolve()
         receipt = read_json(path)
-        need(receipt["fresh_outputs"] is True and receipt["finished_ns"] > receipt["started_ns"], "Incomplete or reused native build")
+        incremental = receipt.get("schema_version") == 2 and receipt.get("build_mode") == "incremental" and bool(
+            re.fullmatch(r"[0-9a-f]{64}", receipt.get("cache_key_sha256", ""))) and all(
+                b.get("validated_current_inputs") is True for b in receipt.get("builds", []))
+        need((receipt.get("fresh_outputs") is True or incremental) and receipt["finished_ns"] > receipt["started_ns"], "Incomplete or reused native build")
+        state_path = path.parent.parent / ".venus-native-cache.json"
+        if state_path.exists():
+            state = read_json(physical(state_path))
+            need(state["status"] == "complete" and state["started_ns"] == receipt["started_ns"] and
+                 state["receipt_sha256"] == digest(path), "Latest native build is incomplete/failed; rebuild before packaging")
         need(receipt["source"] == identity, "Mixed source/engine/manifest identities in native inputs")
         need(receipt.get("builds") and all(b["finished_ns"] > b["started_ns"] for b in receipt["builds"]), "Missing build provenance")
         receipts.append({"sha256": digest(path), "host": receipt["host"], "groups": receipt["groups"]})
@@ -763,7 +942,50 @@ def archive_path(output, tag, sdk_host, revision):
     return Path(output) / f"flutter_venus_{tag}_{sdk_host}_{revision[:12]}{extension}"
 
 
+def validate_delivery(output):
+    output = physical(output)
+    need(output.is_dir(), f"Not a real delivery directory: {output}")
+    marker = physical(output / "delivery.json")
+    receipt_path = physical(output / "flutter/bin/cache/venus-sdk.json")
+    delivery = read_json(marker)
+    name = relative(delivery["sdk_archive"])
+    need(len(name.parts) == 1 and name.name not in {"delivery.json", "flutter"}, "Unsafe SDK archive name")
+    archive = physical(output / name.name)
+    need(digest(archive) == delivery["sha256"], "Final SDK archive hash mismatch")
+    need(digest(receipt_path) == delivery["sdk_receipt"], "Final SDK receipt hash mismatch")
+    receipt = read_json(receipt_path)
+    need(receipt["schema_version"] == 1 and receipt["host"] in HOSTS and receipt["default_web_build"] == "PASS" and
+         receipt["official_native_downloads_used"] is False, "SDK packaging did not complete with local engines")
+    identity = receipt["source"]
+    need(isinstance(identity, dict) and identity.get("schema_version") == 1 and
+         re.fullmatch(r"[0-9a-f]{40}", identity.get("flutter_commit", "")), "Invalid packaged source identity")
+    need(physical(output / "flutter/bin/flutter").is_file(), "Missing packaged Flutter")
+    return receipt, archive, marker
+
+
 def package(args):
+    _, _, spec, _ = context(args)
+    owner = {"kind": "sdk", "official_commit": spec["official_commit"]}
+
+    def validate(path):
+        receipt, _, _ = validate_delivery(path)
+        need(receipt["source"]["official_commit"] == spec["official_commit"] and receipt["host"] == args.host,
+             "Existing SDK belongs to another source/host")
+
+    output = physical(args.output)
+    with staged_output(output, owner, validate) as pending:
+        stage_args = copy.copy(args)
+        stage_args.output = pending
+        package_into(stage_args)
+        # Smoke build and pub cache are disposable, unlike native objects/toolchains.
+        for name in ("smoke", "pub-cache"):
+            path = pending / name
+            if path.exists():
+                shutil.rmtree(physical(path))
+    print(output / "delivery.json")
+
+
+def package_into(args):
     _, manifest, spec, injector = context(args)
     identity = source_identity(args, manifest)
     revision = identity["flutter_commit"]
@@ -776,8 +998,6 @@ def package(args):
     missing = sorted(set(required) - set(artifacts))
     need(not missing and "download.flutter.io" in artifacts, f"Incomplete native SDK inputs: {missing}; Maven directory is also required")
     output = Path(args.output).resolve()
-    need(not output.exists(), f"Fresh package output required: {output}")
-    output.mkdir(parents=True)
     root = output / "flutter"
     run([sys.executable, injector, "restore", "--manifest", manifest, "--flutter-root", root,
          "--bundle", bundle, "--receipt", args.source_receipt, "--repository", args.repository or spec["upstream"]])
@@ -871,7 +1091,6 @@ def package(args):
         with tarfile.open(archive, "w:xz") as t:
             t.add(root, arcname="flutter")
     write_json(output / "delivery.json", {"sdk_archive": archive.name, "sha256": digest(archive), "sdk_receipt": digest(root / "bin/cache/venus-sdk.json")})
-    print(archive)
 
 
 def clean(args):
@@ -917,7 +1136,7 @@ def clean(args):
                  Path(args.venus_root).resolve() if args.venus_root else Path(__file__).resolve().parents[2]]
     protected.extend(Path(path).resolve() for path in (args.flutter_root or []))
     candidates = []
-    for name in ("source", "build", "sdk/smoke", "sdk/pub-cache"):
+    for name in ("sdk/smoke", "sdk/pub-cache"):
         path = output / name
         if not path.exists() and not path.is_symlink():
             continue
@@ -927,23 +1146,12 @@ def clean(args):
         for checkout in (path, path / "flutter"):
             need(not (checkout / ".git").is_file(), f"Refuse to remove registered Git worktree: {checkout}")
         candidates.append(path)
-    if output / "source" in candidates:
-        source = checked("source/source.json")
-        need(read_json(source) == identity, "Source directory belongs to another SDK")
-        bundle = checked("source/source.bundle")
-        need(digest(bundle) == identity["bundle_sha256"], "Source bundle hash mismatch")
-    if output / "build" in candidates:
-        build = checked("build/artifacts/receipt.json")
-        need(read_json(build)["source"] == identity, "Build directory belongs to another SDK")
-        build_sha = digest(build)
-        need(any(item["sha256"] == build_sha for item in receipt["input_receipts"]),
-             "Build receipt was not used in this SDK")
     # All preflight checks precede deletion. rmtree does not follow inner symlinks.
     # An I/O error during deletion can leave partial intermediates; report it.
     for path in candidates:
         shutil.rmtree(path)
         print(f"Removed: {path}")
-    print(f"Kept SDK: {flutter}\nKept archive: {archive}\nKept delivery: {marker}")
+    print(f"Kept source/build cache: {output}\nKept SDK: {flutter}\nKept archive: {archive}\nKept delivery: {marker}")
 
 
 def main():
@@ -954,7 +1162,7 @@ def main():
     p = sub.add_parser("plan", help="Read official recipes and print the real worker/platform matrix")
     p.add_argument("--flutter-root", required=True)
     p.add_argument("--group", choices=GROUPS, action="append")
-    b = sub.add_parser("build", help="Build selected official recipes in a fresh injected checkout")
+    b = sub.add_parser("build", help="Incrementally build selected official recipes in a verified workspace")
     b.add_argument("--flutter-root", required=True)
     b.add_argument("--source-receipt", required=True)
     b.add_argument("--group", choices=GROUPS, action="append", required=True)
@@ -972,12 +1180,23 @@ def main():
     c = sub.add_parser("clean", help="Verify final delivery and remove fixed packaging intermediates")
     c.add_argument("--output", required=True, help="Release root containing sdk/delivery.json")
     c.add_argument("--flutter-root", action="append", help="Protected source checkout; may repeat")
+    lock = sub.add_parser("locked-run", help=argparse.SUPPRESS)
+    lock.add_argument("--lock", action="append", required=True)
+    lock.add_argument("argv", nargs=argparse.REMAINDER)
     for item in (b, q):
         item.add_argument("--nm", help="Pinned llvm-nm for native export checks")
         item.add_argument("--readobj", help="Pinned llvm-readobj for PE export checks")
     args = parser.parse_args()
     try:
-        {"plan": plan, "build": build, "package": package, "clean": clean}[args.command](args)
+        if args.command == "locked-run":
+            return locked_run(args)
+        paths = []
+        if args.command != "plan" and os.environ.get("VENUS_SDK_UNDER_LOCK") != "1":
+            output = physical(args.output)
+            paths = [output.parent.parent if args.command == "build" else output.parent if args.command == "package" else output,
+                     Path(args.source_receipt).parent if args.command in ("build", "package") else output / "source"]
+        with workspace_lock(paths):
+            {"plan": plan, "build": build, "package": package, "clean": clean}[args.command](args)
     except (Failure, OSError, KeyError, ValueError, struct.error, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         print(f"STOP: {error}", file=sys.stderr)
         return 1

@@ -503,7 +503,7 @@
     "template": "release_readme.md",
     "destination": "venus/README.md",
     "mode": "100644",
-    "sha256": "8308bef859ac7e7928f43ec55956cc44c704f58de8e658c6dc471ab2172d1217"
+    "sha256": "24e3c5c5ea949c087db0d8d6ff607425ee62a53edae7c7a62fe5fc56480a837c"
   },
   "release_env_example": {
     "template": "release_env.example",
@@ -519,15 +519,15 @@
   },
   "release_tooling": {
     "inject.py": {
-      "sha256": "2a8a5b3a5565255119e3a8bf01e84e298d6efde61a2cd8a3b0f1cb5bea7fc6e7",
+      "sha256": "f989e91d05c8c44d3f2466ecddd9eb70536e6150341f5dcc205b56bfcc9ed079",
       "mode": "100644"
     },
     "release.py": {
-      "sha256": "a15129680396c50160e94e109497339c55cd682d901490ae8275a1aa27fc0cf2",
+      "sha256": "623e1ad50547d54ce8dd2f95c687b7a8c8c77d3993368262dab6d85e47a694c9",
       "mode": "100755"
     },
     "release_sdk.sh": {
-      "sha256": "baa7752deb82bc51c2bf26f51cde2365be178254e958c80dfb085dd133974ad1",
+      "sha256": "aa6b021fac17bd5bd6cf9e4e854767282c4c82158cd23f856f6321c839d42e91",
       "mode": "100755"
     }
   }

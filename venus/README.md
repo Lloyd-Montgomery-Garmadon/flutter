@@ -12,12 +12,14 @@
 
 在 Mac 从源码构建 Android、iOS、Web、macOS 引擎并打包。
 包含支持的架构以及 debug/profile/release 模式。
-首次构建自动从当前干净、身份匹配的 Flutter checkout 导出源码快照。
+默认增量编译；首次构建导出当前干净、身份匹配的源码快照，后续复用构建目录、工具链和 Ninja 缓存。
+已提交的同版本源码更新会校验并前移快照，再由 GN/Ninja 重建受影响目标；升级版本使用各版本独立目录。
 SDK 和压缩包默认输出到当前 Flutter 目录旁的 `<目录名>-sdk-release-3.44.9/sdk/`，
 可在本目录的 `release_sdk.env` 中设置 `VENUS_RELEASE_DIR` 修改。
-`clean` 删除源码快照、构建目录和打包临时缓存，保留最终 SDK、压缩包和交付记录；未打包成功时拒绝清理。
+`clean` 只删除打包验证的临时缓存，保留源码快照、构建缓存、最终 SDK、压缩包和交付记录；未打包成功时拒绝清理。
 只构建用 `./release_sdk.sh build`，已有构建结果只打包用 `./release_sdk.sh package`。
-输出目录必须是新目录；参数见 `./release_sdk.sh --help`。
+再次执行同一命令即可增量构建；打包校验通过后替换旧 SDK，失败保留旧交付与构建缓存。
+废弃的自有打包临时目录会清理，工作区锁拒绝并发构建/清理；参数见 `./release_sdk.sh --help`。
 
 ## 设置 Flutter 环境变量
 

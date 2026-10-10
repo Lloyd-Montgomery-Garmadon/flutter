@@ -12,23 +12,23 @@ usage() {
   cat <<'HELP'
 Usage: bash release_sdk.sh source|release|build|package|clean [options]
 
-  source  --output NEW_DIR [--flutter-root EXISTING_OR_NEW_CHECKOUT]
+  source  --output SOURCE_DIR [--flutter-root EXISTING_OR_NEW_CHECKOUT]
           From Venus only: check official file hashes before prepare, then
           write source.bundle and source.json. Drift stops for agent migration.
   release --source SOURCE_DIR --output RELEASE_DIR
           Build all local groups, then package using its single build receipt.
           Default command when invoked without arguments.
-  build   --source SOURCE_DIR --output NEW_JOB_DIR
-          Restore to NEW_JOB_DIR/flutter, read the official plan, build all
-          groups for this machine into NEW_JOB_DIR/artifacts/receipt.json.
+  build   --source SOURCE_DIR --output JOB_DIR
+          Restore/reuse JOB_DIR/flutter, read the official plan, build all
+          groups incrementally into JOB_DIR/artifacts/receipt.json.
           --from-checkout CHECKOUT exports/reuses its strictly checked source
           snapshot before release/build. Generated Flutter supplies this itself.
-  package --source SOURCE_DIR --output NEW_SDK_DIR [--build-receipt FILE ...]
+  package --source SOURCE_DIR --output SDK_DIR [--build-receipt FILE ...]
           Defaults to VENUS_RELEASE_DIR/build/artifacts/receipt.json and its
           build/flutter LLVM tools. Explicit receipts remain available.
   clean   --output RELEASE_DIR [--flutter-root PROTECTED_CHECKOUT]
           After successful packaging, verify delivery hashes and remove only
-          source/, build/, sdk/smoke/ and sdk/pub-cache/. Keep the final SDK,
+          sdk/smoke/ and sdk/pub-cache/. Keep source/build caches, the SDK,
           archive and delivery record. May be repeated; no source required.
           --flutter-root may repeat; use a physical output path (no symlinks).
 
@@ -41,15 +41,15 @@ With VENUS_RELEASE_DIR configured, --output/--source default to its
 source/, build/ and sdk/ directories. CLI options override these defaults.
 Set PYTHON to a Python 3.10+ executable (Windows Git Bash: PYTHON=python).
 
-Build/package outputs must be new. All workers must share ONE source snapshot.
-Do not run clean concurrently with source/build/package.
+Build defaults to GN/Ninja incremental compilation in a verified workspace.
+Package validates a fresh staging SDK before replacing the previous delivery.
+All workers share ONE source snapshot; workspace locks reject concurrent writers.
 Full SDKs contain debug/profile/release engines. On macOS, Apple/Android/Web engines are built locally for a complete Mac SDK.
 Linux/Windows host SDKs require their respective build hosts.
 HELP
 }
 
 stop() { printf 'STOP: %s\n' "$*" >&2; exit 2; }
-fresh() { [[ ! -e "$1" && ! -L "$1" ]] || stop "Output already exists: $1"; }
 
 command=${1:-release}
 case "$command" in
@@ -57,6 +57,7 @@ case "$command" in
   source|release|build|package|clean) (( $# == 0 )) || shift ;;
   *) usage >&2; exit 2 ;;
 esac
+forward_args=("$@")
 venus_root=$(cd -- "$script_dir/../.." && pwd -P)
 python=${PYTHON:-python3}
 manifest="$script_dir/releases/3.44.9/manifest.json"
@@ -91,11 +92,30 @@ if [[ -n "${VENUS_RELEASE_DIR:-}" ]]; then
   esac
 fi
 [[ -n "$output" ]] || stop "--output is required"
-[[ "$command" == release || "$command" == clean ]] || fresh "$output"
 [[ -f "$manifest" ]] || stop "Manifest missing: $manifest"
 command -v "$python" >/dev/null || stop "Python executable missing: $python"
 inject=("$python" "$script_dir/inject.py")
 release=("$python" "$script_dir/release.py" --venus-root "$venus_root" --manifest "$manifest")
+
+# Validate source before a lock may create its parent directories.
+if [[ -n "$from_checkout" ]]; then
+  "${inject[@]}" check --manifest "$manifest" --flutter-root "$from_checkout"
+elif [[ "$command" != source && "$command" != clean ]]; then
+  [[ -n "$source_dir" && -f "$source_dir/source.bundle" && -f "$source_dir/source.json" ]] || \
+    stop "--source must contain source.bundle and source.json from ONE source run"
+fi
+if [[ "$command" == build && ( -e "$output" || -L "$output" ) ]]; then
+  [[ ! -L "$output" && -d "$output/flutter" ]] || stop "Unowned build workspace: $output"
+fi
+
+if [[ "${VENUS_SDK_UNDER_LOCK:-}" != 1 ]]; then
+  lock_root=$output
+  case "$command" in source|build|package) lock_root=$(dirname -- "$output") ;; esac
+  lock_source=${source_dir:-"$output/source"}
+  [[ "$command" != source ]] || lock_source=$output
+  exec "${release[@]}" locked-run --lock "$lock_root" --lock "$lock_source" -- \
+    bash "$script_dir/release_sdk.sh" "$command" "${forward_args[@]}"
+fi
 
 if [[ "$command" == clean ]]; then
   "${release[@]}" clean --output "$output" "${protect_args[@]}"
@@ -112,7 +132,7 @@ if [[ "$command" == source ]]; then
     "${inject[@]}" prepare --manifest "$manifest" --flutter-root "$flutter_root" "${repository_args[@]}"
   fi
   "${inject[@]}" snapshot --manifest "$manifest" --flutter-root "$flutter_root" \
-    --bundle "$output/source.bundle" --receipt "$output/source.json"
+    --bundle "$output/source.bundle" --receipt "$output/source.json" --refresh
   printf 'Shared source: %s\n' "$output"
   exit 0
 fi
@@ -120,14 +140,12 @@ fi
 if [[ -n "$from_checkout" ]]; then
   source_dir=${source_dir:-"$output/source"}
   "${inject[@]}" snapshot --manifest "$manifest" --flutter-root "$from_checkout" \
-    --bundle "$source_dir/source.bundle" --receipt "$source_dir/source.json" --reuse
+    --bundle "$source_dir/source.bundle" --receipt "$source_dir/source.json" --refresh
 fi
 
 [[ -n "$source_dir" && -f "$source_dir/source.bundle" && -f "$source_dir/source.json" ]] || \
   stop "--source must contain source.bundle and source.json from ONE source run"
 if [[ "$command" == release ]]; then
-  fresh "$output/build"
-  fresh "$output/sdk"
   bash "$script_dir/release_sdk.sh" build --manifest "$manifest" --source "$source_dir" \
     --output "$output/build" "${repository_args[@]}" "${tool_args[@]}"
   bash "$script_dir/release_sdk.sh" package --manifest "$manifest" --source "$source_dir" \
