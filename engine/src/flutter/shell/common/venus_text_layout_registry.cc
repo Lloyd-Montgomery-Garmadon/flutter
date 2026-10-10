@@ -206,6 +206,12 @@ static_assert(sizeof(FlutterVenusTextLayoutApiV2) == (kV2Pointer64 ? 128u : 104u
 // reserved0 更名启用为 text_color_argb —— 偏移与宽度一字节未变, ABI 等价。
 static_assert(offsetof(FlutterVenusTextLayoutInputV2, text_color_argb) == 68u);
 static_assert(offsetof(FlutterVenusTextLayoutInputV2, text) == 72u);
+static_assert(offsetof(FlutterVenusTextLayoutInputV2, font_family) ==
+              (kV2Pointer64 ? 80u : 76u));
+static_assert(offsetof(FlutterVenusTextLayoutInputV2, locale) ==
+              (kV2Pointer64 ? 88u : 80u));
+static_assert(offsetof(FlutterVenusTextLayoutInputV2, ellipsis) ==
+              (kV2Pointer64 ? 96u : 84u));
 static_assert(offsetof(FlutterVenusTextLayoutInputV2, min_width) == (kV2Pointer64 ? 104u : 88u));
 static_assert(offsetof(FlutterVenusTextLayoutInputV2, prelayout_token) == (kV2Pointer64 ? 176u : 160u));
 static_assert(

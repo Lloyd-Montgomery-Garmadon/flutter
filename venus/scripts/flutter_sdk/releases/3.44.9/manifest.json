@@ -34,6 +34,10 @@
     {
       "path": "engine/src/flutter/lib/snapshot/BUILD.gn",
       "reason": "Darwin Android x86 debug uses the host-only core snapshot producer and excludes unsupported x86 AOT host tools. Other targets and Linux producers remain unchanged."
+    },
+    {
+      "path": "engine/src/flutter/shell/common/venus_text_layout_registry.cc",
+      "reason": "Freeze all native string-pointer offsets for ARMv7 (32-bit) and arm64 (64-bit); preserve existing arm64 declarations and runtime behavior."
     }
   ],
   "dependencies": {
@@ -107,7 +111,7 @@
   "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration; the phase2 venus_text_layout_node_core.cc change remains deferred.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "db7beafdf53dbfaa26bfd2e6577da47f8582f771c86154acd9df267935deb150",
+    "sha256": "4b80fdca6cf7aa5298038944cbbd63c0bce9415df9b51ac2f2459adf48022695",
     "expected_file_count": 44,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
@@ -251,7 +255,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "c947e8a1057741f5646336969299a9e9aff3566a",
+        "patched_blob": "ca977dc85116b7d9a47233f2cef26a0050a3aa2e",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
