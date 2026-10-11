@@ -42,6 +42,9 @@ bool TextStyle::equals(const TextStyle& other) const {
   if (word_spacing != other.word_spacing) {
     return false;
   }
+  if (venus_no_soft_wrap != other.venus_no_soft_wrap) {
+    return false;
+  }
   if (height != other.height) {
     return false;
   }

@@ -76,7 +76,9 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilitySync            = 1u << 0,
   kFlutterVenusV2CapabilityItemTiming      = 1u << 2,
   kFlutterVenusV2CapabilityFontFingerprint = 1u << 3,
-  kFlutterVenusV2CapabilityKnownMask       = 0x0du,
+  kFlutterVenusV2CapabilityPreservedWhitespace = 1u << 4,
+  kFlutterVenusV2CapabilityNoSoftWrapRanges = 1u << 5,
+  kFlutterVenusV2CapabilityKnownMask       = 0x3du,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -369,6 +371,16 @@ typedef enum FlutterVenusTextLayoutRunKindV2 {
   kFlutterVenusV2RunKindLineBreak   = 2,
 } FlutterVenusTextLayoutRunKindV2;
 
+// Venus-only per-run mode; default 0 retains ordinary widget behavior.
+// Preserve changes fragment ranges only. PreserveNoSoftWrap also disables soft
+// and emergency breaks inside contiguous opted-in text ranges; hard LF remains.
+// Mode 2 requires the optional NoSoftWrapRanges capability; RunV2 ABI is unchanged.
+typedef enum FlutterVenusTextLayoutWhitespaceModeV2 {
+  kFlutterVenusV2WhitespaceNormal = 0,
+  kFlutterVenusV2WhitespacePreserve = 1,
+  kFlutterVenusV2WhitespacePreserveNoSoftWrap = 2,
+} FlutterVenusTextLayoutWhitespaceModeV2;
+
 typedef struct FlutterVenusTextLayoutRunV2 {
   uint32_t struct_size;
   uint32_t kind;  ///< FlutterVenusTextLayoutRunKindV2
@@ -406,7 +418,7 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   /// 口径同 `placeholder_alignment`, 只收 0=baseline / 1=top / 3=bottom
   /// (对齐**行盒**上/下沿, CSS 2.1 §10.8.1); 其余值与非文本 run 上的非 0 均为非法参数。
   uint16_t text_vertical_align;
-  uint16_t reserved1;  ///< 必须为 0
+  uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
 } FlutterVenusTextLayoutRunV2;
 
 typedef struct FlutterVenusTextLayoutLineMetricV2 {
@@ -504,8 +516,9 @@ FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphV2(
 
 /* Version-scoped ownership for prelaid Paragraph artifacts. Begin must happen
    before the first owned deposit. Bind attaches an acquired slot lease to the
-   owner; Seal succeeds only after every bound lease has been returned. Claim
-   remains token-based but cannot consume an owned artifact before Seal. */
+   owner. Seal is the atomic reserve barrier: it succeeds only after every
+   bound lease has been returned and the complete owner set exists. Before a
+   successful Seal, Claim cannot consume any artifact from that set. */
 FLUTTER_EXPORT int32_t FlutterVenusTextLayoutArtifactOwnerBeginV1(
     uint64_t engine_id,
     uint64_t registration_generation,

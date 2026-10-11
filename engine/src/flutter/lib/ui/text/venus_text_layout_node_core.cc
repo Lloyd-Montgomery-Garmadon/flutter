@@ -710,6 +710,7 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
       text_style.locale = input.locale;
       text_style.letter_spacing = r.letter_spacing;
       text_style.word_spacing = r.word_spacing;
+      text_style.venus_no_soft_wrap = r.no_soft_wrap;
       // 声明过的行高 (含 CSS `line-height: 0`) 一律覆盖; 段落已打开
       // honor_zero_height_override, Skia 不再把倍数 0 当"未设置"。
       if (r.height_multiple > 0.0 || r.height_declared) {
@@ -772,8 +773,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
   // 必须先按 LineMetrics 的 UTF-16 区间切 run，再对每行的可见区间取矩形。
   // TextBox 不带行号，用它的 y 中点去猜会在高低字号/占位混排时把矩形
   // 归到相邻行。GetLineNumberAt 以同一 Paragraph 的文本位置回答，没有
-  // 几何容差。end_excluding_whitespace 同时在 Paragraph 这个唯一事实源上
-  // 摘掉行尾可折叠空白，下游不再修改 artifact 的片段矩形。
+  // 几何容差。普通模式用 end_excluding_whitespace 摘掉可折叠行尾空白；
+  // 显式保留模式用 end_index (不含 LF)。两者都来自同一 Paragraph。
   const std::vector<txt::Paragraph::TextBox> placeholders =
       paragraph->GetRectsForPlaceholders();
   for (size_t i = 0; i < spans.size(); ++i) {
@@ -807,7 +808,9 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
       for (const txt::LineMetrics& line : lines) {
         const size_t slice_begin = std::max(span.begin, line.start_index);
         const size_t slice_end =
-            std::min(span.end, line.end_excluding_whitespace);
+            std::min(span.end, input.runs[i].preserves_whitespace
+                                   ? line.end_index
+                                   : line.end_excluding_whitespace);
         if (slice_end <= slice_begin) {
           continue;
         }

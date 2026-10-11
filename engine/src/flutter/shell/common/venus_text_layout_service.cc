@@ -213,7 +213,7 @@ int32_t ValidateParagraphInput(
     }
     if (run.height_mode >
             static_cast<uint16_t>(wire::HeightMode::kMultiplier) ||
-        run.reserved1 != 0u ||
+        run.whitespace_mode > kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
         run.kind > kFlutterVenusV2RunKindLineBreak || run.font_style > 1u ||
         run.placeholder_alignment > 6u || run.placeholder_baseline > 1u ||
         !std::isfinite(run.font_size) ||
@@ -250,6 +250,7 @@ int32_t ValidateParagraphInput(
         return kFlutterVenusV2InvalidArgument;
       }
     } else if (run.height_mode != 0u || run.text_vertical_align != 0u ||
+               run.whitespace_mode != kFlutterVenusV2WhitespaceNormal ||
                run.text_offset != 0u ||
                run.text_length != 0u ||
                run.font_family_offset != 0u ||
@@ -307,7 +308,9 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
   api->struct_size = static_cast<uint32_t>(sizeof(FlutterVenusTextLayoutApiV2));
   api->engine_id = engine_id_;
   api->registration_generation = registration_generation_;
-  api->capabilities = kFlutterVenusV2CapabilityRequired;
+  api->capabilities = kFlutterVenusV2CapabilityRequired |
+                      kFlutterVenusV2CapabilityPreservedWhitespace |
+                      kFlutterVenusV2CapabilityNoSoftWrapRanges;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
   // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -1001,6 +1004,11 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     venus_text_layout::ParagraphRunView rv;
     rv.is_placeholder = r.kind == kFlutterVenusV2RunKindPlaceholder;
     rv.is_line_break = r.kind == kFlutterVenusV2RunKindLineBreak;
+    rv.preserves_whitespace =
+        r.whitespace_mode == kFlutterVenusV2WhitespacePreserve ||
+        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
+    rv.no_soft_wrap =
+        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
     if (!rv.is_placeholder && !rv.is_line_break) {
       rv.text = Utf8ToUtf16(input->text + r.text_offset, r.text_length);
     }

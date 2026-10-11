@@ -128,6 +128,8 @@ struct ParagraphRunView {
   /// 硬换行 (`<br>`)。段落里写一个 U+000A —— **由这里写, 不由调用方混进文本**,
   /// 理由见公共头 kFlutterVenusV2RunKindLineBreak 的说明。
   bool is_line_break = false;
+  bool preserves_whitespace = false;  ///< Venus fragment ranges only, per run.
+  bool no_soft_wrap = false;  ///< Venus opt-in text range; hard LF is unchanged.
   std::u16string text;          ///< is_placeholder 时为空
   std::string font_family;      ///< US(0x1f) 分隔的整条链, 与单节点那套同口径
   double font_size = 0.0;

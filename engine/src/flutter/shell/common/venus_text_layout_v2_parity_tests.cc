@@ -792,6 +792,15 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
        [](ParagraphWire* w) { w->run.text_offset = w->input.text_length; }},
       {"input enum", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) { w->input.text_direction = 0u; }},
+      {"whitespace mode enum", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->run.whitespace_mode = 3u; }},
+      {"nontext whitespace mode", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) {
+         w->run.kind = kFlutterVenusV2RunKindLineBreak;
+         w->run.text_length = 0u;
+         w->run.font_family_length = 0u;
+         w->run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
+       }},
       {"run enum", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) { w->run.kind = 3u; }},
       {"malformed utf8", kFlutterVenusV2InvalidArgument,
@@ -865,6 +874,41 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
   EXPECT_EQ(valid_status, kFlutterVenusV2Ok);
   EXPECT_EQ(valid.output.status, valid_status);
   EXPECT_EQ(valid.output.truncated, 1u);
+  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityPreservedWhitespace, 0u);
+  valid.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
+  EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
+                kEngineId, slot, lease, &valid.input, &valid.output),
+            kFlutterVenusV2Ok);
+
+  // Adjacent protected runs span a font/color boundary; Normal around them still wraps.
+  ParagraphWire mixed; mixed.text = "AA AA AA XX  YY  ZZ BB BB BB";
+  mixed.input.text = reinterpret_cast<const uint8_t*>(mixed.text.data()); mixed.input.text_length = mixed.text.size();
+  FlutterVenusTextLayoutRunV2 runs[4] = {mixed.run, mixed.run, mixed.run, mixed.run};
+  const uint32_t offsets[] = {0, 9, 13, 19}, lengths[] = {9, 4, 6, 9};
+  for (uint32_t i = 0; i < 4; ++i) { runs[i].text_offset = offsets[i]; runs[i].text_length = lengths[i]; }
+  runs[1].text_color_argb = 0xffff0000; runs[2].text_color_argb = 0xff0000ff; runs[2].font_size = 20;
+  FlutterVenusTextLayoutLineMetricV2 lines[32]{}; FlutterVenusTextLayoutFragmentRectV2 rects[32]{};
+  mixed.input.runs = runs; mixed.input.run_count = 4; mixed.input.max_width = 32;
+  mixed.input.line_metrics_out = lines; mixed.input.line_metric_capacity = 32;
+  mixed.input.fragment_rects_out = rects; mixed.input.fragment_rect_capacity = 32;
+  uint32_t normal_lines = 0;
+  for (const uint16_t mode : {uint16_t(0), uint16_t(2), uint16_t(1), uint16_t(2), uint16_t(0)}) {
+    SCOPED_TRACE(mode); runs[1].whitespace_mode = runs[2].whitespace_mode = mode;
+    const auto status = FlutterVenusTextLayoutParagraphV2(kEngineId, slot, lease, &mixed.input, &mixed.output);
+    EXPECT_EQ(status, kFlutterVenusV2Ok); if (status != kFlutterVenusV2Ok) continue;
+    EXPECT_EQ(mixed.output.truncated, 0u); uint32_t counts[4] = {}; uint32_t protected_line = UINT32_MAX;
+    for (uint32_t i = 0; i < mixed.output.fragment_rect_count; ++i) {
+      ASSERT_LT(rects[i].run_index, 4u); ++counts[rects[i].run_index];
+      if (mode == uint16_t(2) && (rects[i].run_index == 1 || rects[i].run_index == 2)) {
+        if (protected_line == UINT32_MAX) protected_line = rects[i].line_number;
+        EXPECT_EQ(rects[i].line_number, protected_line);
+      }
+    }
+    EXPECT_GT(counts[0], 1u); EXPECT_GT(counts[3], 1u);
+    if (mode == uint16_t(2)) { EXPECT_EQ(counts[1], 1u); EXPECT_EQ(counts[2], 1u); }
+    if (mode == 0) { if (normal_lines == 0) normal_lines = mixed.output.line_metric_count;
+      EXPECT_EQ(mixed.output.line_metric_count, normal_lines); }
+  }
 
   EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
   api.release_context(api.context);

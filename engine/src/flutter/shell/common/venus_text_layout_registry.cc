@@ -39,7 +39,7 @@ static_assert(alignof(V2ScalarAlignmentProbe) == 4u ||
 static_assert(kFlutterVenusV2CapabilitySync == 0x01u);
 static_assert(kFlutterVenusV2CapabilityItemTiming == 0x04u);
 static_assert(kFlutterVenusV2CapabilityFontFingerprint == 0x08u);
-static_assert(kFlutterVenusV2CapabilityKnownMask == 0x0du);
+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x3du);
 // §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 // 生产必需集(仍在 KnownMask 内, 是可选能力)。
 static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
@@ -90,7 +90,7 @@ static_assert(offsetof(FlutterVenusTextLayoutRunV2,
 // 原 uint32 reserved1 拆成 text_vertical_align + reserved1, 偏移与结构体大小未变。
 static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align) ==
               (kV2Align8 ? 100u : 96u));
-static_assert(offsetof(FlutterVenusTextLayoutRunV2, reserved1) == (kV2Align8 ? 102u : 98u));
+static_assert(offsetof(FlutterVenusTextLayoutRunV2, whitespace_mode) == (kV2Align8 ? 102u : 98u));
 static_assert(sizeof(FlutterVenusTextLayoutLineMetricV2) == 56u);
 static_assert(alignof(FlutterVenusTextLayoutLineMetricV2) == (kV2Align8 ? 8u : 4u));
 static_assert(offsetof(FlutterVenusTextLayoutLineMetricV2, struct_size) == 0u);

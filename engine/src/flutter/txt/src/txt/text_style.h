@@ -41,6 +41,8 @@ class TextStyle {
   double font_size = 14.0;
   double letter_spacing = 0.0;
   double word_spacing = 0.0;
+  // Venus-only range policy. Ordinary Flutter TextStyle keeps the default.
+  bool venus_no_soft_wrap = false;
   double height = 1.0;
   bool has_height_override = false;
   // Vertical offset of this run from the line baseline (logical pixels, down
