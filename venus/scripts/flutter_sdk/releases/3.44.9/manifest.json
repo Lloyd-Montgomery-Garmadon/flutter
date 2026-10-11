@@ -7,12 +7,21 @@
   "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
   "patch_branch": "venus/venus-stable-3.44.9",
   "source": {
-    "flutter_base": "49d0823cb00e22a08534f2b5e2a125386176eea6",
-    "flutter_tip": "12a1cd2cceb08dda55cd5f57ceec4ce1b9330447",
-    "flutter_commit_count": 53,
-    "flutter_changed_files": 43,
+    "flutter_base": "6b182d2c7585eba26d4edce0f97630effd256c33",
+    "flutter_tip": "3fe9754174435a61cea3192b784dc5282881ca31",
+    "flutter_commit_count": 27,
+    "flutter_changed_files": 46,
     "inventory": "source-inventory.json",
-    "migrated_patch_commit": "f33cd941229dacd068c66e2a23946e391b58cc9a"
+    "migrated_patch_commit": "3fe9754174435a61cea3192b784dc5282881ca31",
+    "seed_native_commit": "b0b611433003f8986959334835649fc134f38787",
+    "inherited_source": {
+      "flutter_base": "49d0823cb00e22a08534f2b5e2a125386176eea6",
+      "flutter_tip": "12a1cd2cceb08dda55cd5f57ceec4ce1b9330447",
+      "flutter_commit_count": 53,
+      "flutter_changed_files": 43,
+      "inventory": "source-inventory.json",
+      "migrated_patch_commit": "f33cd941229dacd068c66e2a23946e391b58cc9a"
+    }
   },
   "adaptations": [
     {
@@ -38,6 +47,10 @@
     {
       "path": "engine/src/flutter/shell/common/venus_text_layout_registry.cc",
       "reason": "Freeze all native string-pointer offsets for ARMv7 (32-bit) and arm64 (64-bit); preserve existing arm64 declarations and runtime behavior."
+    },
+    {
+      "path": "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h",
+      "reason": "Inline-align99 freezes RunV2 tail offset104/100 and size112/108. Provider and consumer deploy together; old/new wire stride rejected."
     }
   ],
   "dependencies": {
@@ -153,10 +166,10 @@
     "push_requires_explicit_user_authorization": true,
     "allow_followup_maintenance_commits": true
   },
-  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes. Venus nonempty float-profile legal-break overflow and existing no-soft-wrap clearance controls; ordinary Flutter and empty-profile behavior retained.",
+  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes. Venus nonempty float-profile legal-break overflow and existing no-soft-wrap clearance controls; ordinary Flutter and empty-profile behavior retained. Inline-align99: paired RunV2 tail signed double and exact stride (ABI number remains 2; no binary compatibility), optional capability bit6, text mode6 -> existing native baseline_shift; default Flutter/Skia behavior unchanged. DOM 0px follows existing Baseline scalar protocol; DTO/API active zero is supported independently.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "b8bc7fbaf13d18999711ecebd53d8aba6474a999ed5ff0ee624fdd8f54bef359",
+    "sha256": "8a09efdf22c5d64a2dcdc0be0ba35ba45cf493f9b5d16a5374d9c2e485af2d16",
     "expected_file_count": 46,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
@@ -306,7 +319,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "3676e13bdd11fdd6762ad106495f8aec37151739",
+        "patched_blob": "a9547e0ee5698aca815ef4e1c7d3d10925619d9f",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
@@ -318,7 +331,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_service.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "01b0e98d70af4a641d3468938d9151d8ef461fa6",
+        "patched_blob": "8c03f972d561e245cebfc639b9e84ef19e65243e",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_service.h": {
@@ -336,7 +349,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "6b48dd7c514b66541f5118e5954c5fd072507bf5",
+        "patched_blob": "08566a1f18d3a84548cec598b8eda9c7d98c3541",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_stress.cc": {
@@ -366,7 +379,7 @@
       "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "b3fc40de416470c6c0aa1ad319e4185e2c925b85",
+        "patched_blob": "b8f8ae19fd8030612c524176f8d294540716e393",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/platform/darwin/ios/BUILD.gn": {

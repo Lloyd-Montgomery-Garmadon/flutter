@@ -6978,10 +6978,10 @@ index 0000000000000000000000000000000000000000..7e8d876acffc0283ebdedd9dc52f769d
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_registry.cc b/engine/src/flutter/shell/common/venus_text_layout_registry.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..3676e13bdd11fdd6762ad106495f8aec37151739
+index 0000000000000000000000000000000000000000..a9547e0ee5698aca815ef4e1c7d3d10925619d9f
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_registry.cc
-@@ -0,0 +1,524 @@
+@@ -0,0 +1,527 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -7023,7 +7023,8 @@ index 0000000000000000000000000000000000000000..3676e13bdd11fdd6762ad106495f8aec
 +static_assert(kFlutterVenusV2CapabilitySync == 0x01u);
 +static_assert(kFlutterVenusV2CapabilityItemTiming == 0x04u);
 +static_assert(kFlutterVenusV2CapabilityFontFingerprint == 0x08u);
-+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x3du);
++static_assert(kFlutterVenusV2CapabilityTextVerticalAlignLength == 0x40u);
++static_assert(kFlutterVenusV2CapabilityKnownMask == 0x7du);
 +// §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 +// 生产必需集(仍在 KnownMask 内, 是可选能力)。
 +static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
@@ -7046,7 +7047,7 @@ index 0000000000000000000000000000000000000000..3676e13bdd11fdd6762ad106495f8aec
 +// 2026-08-28: 段落入口 (一个 IFC 一次排完) 的四张新表。**独立结构体**, 与上面
 +// 那套单节点的表零重叠 —— 理由见公共头里的说明 (ApiV2 已冻结, 且两者语义不同)。
 +// 与引擎那棵树逐条相同, 两边同帧改。
-+static_assert(sizeof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 104u : 100u));
++static_assert(sizeof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 112u : 108u));
 +static_assert(alignof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 8u : 4u));
 +static_assert(offsetof(FlutterVenusTextLayoutRunV2, struct_size) == 0u);
 +static_assert(offsetof(FlutterVenusTextLayoutRunV2, kind) == 4u);
@@ -7075,6 +7076,8 @@ index 0000000000000000000000000000000000000000..3676e13bdd11fdd6762ad106495f8aec
 +static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align) ==
 +              (kV2Align8 ? 100u : 96u));
 +static_assert(offsetof(FlutterVenusTextLayoutRunV2, whitespace_mode) == (kV2Align8 ? 102u : 98u));
++static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align_length) ==
++              (kV2Align8 ? 104u : 100u));
 +static_assert(sizeof(FlutterVenusTextLayoutLineMetricV2) == 56u);
 +static_assert(alignof(FlutterVenusTextLayoutLineMetricV2) == (kV2Align8 ? 8u : 4u));
 +static_assert(offsetof(FlutterVenusTextLayoutLineMetricV2, struct_size) == 0u);
@@ -7567,10 +7570,10 @@ index 0000000000000000000000000000000000000000..ae3aa0029686f0bb67321902158a4f5d
 +#endif  // FLUTTER_SHELL_COMMON_VENUS_TEXT_LAYOUT_REGISTRY_H_
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_service.cc b/engine/src/flutter/shell/common/venus_text_layout_service.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8ef461fa6
+index 0000000000000000000000000000000000000000..8c03f972d561e245cebfc639b9e84ef19e65243e
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_service.cc
-@@ -0,0 +1,1233 @@
+@@ -0,0 +1,1247 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -7798,9 +7801,9 @@ index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8
 +      return kFlutterVenusV2InvalidArgument;
 +    }
 +    if (run.kind == kFlutterVenusV2RunKindText) {
-+      // 文本 run 只收 baseline / top / bottom (对齐行盒); middle 等档位没有实现。
++      // length 复用既有 baseline shift; top / bottom 仍对齐行盒。
 +      if (run.text_vertical_align != 0u && run.text_vertical_align != 1u &&
-+          run.text_vertical_align != 3u) {
++          run.text_vertical_align != 3u && run.text_vertical_align != 6u) {
 +        return kFlutterVenusV2InvalidArgument;
 +      }
 +      if (!Utf8RangeFits(input.text, input.text_length, run.text_offset,
@@ -7828,6 +7831,15 @@ index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8
 +               run.text_length != 0u ||
 +               run.font_family_offset != 0u ||
 +               run.font_family_length != 0u) {
++      return kFlutterVenusV2InvalidArgument;
++    }
++    uint64_t length_bits = 0u;
++    std::memcpy(&length_bits, &run.text_vertical_align_length,
++                sizeof(length_bits));
++    const bool active_length = run.kind == kFlutterVenusV2RunKindText &&
++                               run.text_vertical_align == 6u;
++    if (active_length ? !std::isfinite(run.text_vertical_align_length)
++                      : length_bits != 0u) {
 +      return kFlutterVenusV2InvalidArgument;
 +    }
 +  }
@@ -7883,7 +7895,8 @@ index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8
 +  api->registration_generation = registration_generation_;
 +  api->capabilities = kFlutterVenusV2CapabilityRequired |
 +                      kFlutterVenusV2CapabilityPreservedWhitespace |
-+                      kFlutterVenusV2CapabilityNoSoftWrapRanges;
++                      kFlutterVenusV2CapabilityNoSoftWrapRanges |
++                      kFlutterVenusV2CapabilityTextVerticalAlignLength;
 +  api->max_slots = kFlutterVenusV2MaxSlots;
 +  // engine_revision was left as the memset zeros, so every consumer that
 +  // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -8630,7 +8643,11 @@ index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8
 +    rv.placeholder_height = r.placeholder_height;
 +    rv.placeholder_baseline_offset = r.placeholder_baseline_offset;
 +    rv.placeholder_alignment = r.placeholder_alignment;
-+    rv.text_vertical_align = r.text_vertical_align;
++    rv.text_vertical_align = r.text_vertical_align == 6u ? 0u
++                                                       : r.text_vertical_align;
++    rv.baseline_shift = r.text_vertical_align == 6u
++                            ? -r.text_vertical_align_length
++                            : 0.0;
 +    view.runs.push_back(std::move(rv));
 +  }
 +
@@ -9994,10 +10011,10 @@ index 0000000000000000000000000000000000000000..8d503eae99c5dee5e2b10eeade205605
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd072507bf5
+index 0000000000000000000000000000000000000000..08566a1f18d3a84548cec598b8eda9c7d98c3541
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
-@@ -0,0 +1,1726 @@
+@@ -0,0 +1,1795 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -10776,6 +10793,8 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +      VenusTextLayoutRegistry::Register(kEngineId, fonts, false);
 +  ASSERT_NE(generation, 0u);
 +  FlutterVenusTextLayoutApiV2 api{};
++  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api) - 1u, &api),
++            kFlutterVenusV2AbiMismatch);
 +  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
 +            kFlutterVenusV2Ok);
 +  uint32_t slot = 0u;
@@ -10891,6 +10910,61 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +    EXPECT_EQ(wire.output.line_metric_count, 0u) << rejection.name;
 +  }
 +
++  // Exact RunV2 shape is required before reading its tail or advancing the stride.
++  for (const uint32_t wrong_size : {uint32_t(sizeof(base.run) - 8u),
++                                    uint32_t(sizeof(base.run) + 8u)}) {
++    for (const uint32_t count : {1u, 2u}) {
++      ParagraphWire wire;
++      FlutterVenusTextLayoutRunV2 runs[2] = {wire.run, wire.run};
++      runs[0].struct_size = wrong_size;
++      wire.input.runs = runs;
++      wire.input.run_count = count;
++      EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
++                    kEngineId, slot, lease, &wire.input, &wire.output),
++                kFlutterVenusV2AbiMismatch);
++    }
++  }
++  // An actual old-stride allocation contains no new scalar tail for run zero.
++  alignas(FlutterVenusTextLayoutRunV2) uint8_t old_runs[2 * (sizeof(base.run) - 8u)]{};
++  const uint32_t old_size = sizeof(base.run) - 8u;
++  std::memcpy(old_runs, &old_size, sizeof(old_size));
++  ParagraphWire old_wire;
++  old_wire.input.runs = reinterpret_cast<const FlutterVenusTextLayoutRunV2*>(old_runs);
++  old_wire.input.run_count = 2u;
++  EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
++                kEngineId, slot, lease, &old_wire.input, &old_wire.output),
++            kFlutterVenusV2AbiMismatch);
++
++  const double invalid_lengths[] = {1.0, -0.0, std::nan(""),
++                                    std::numeric_limits<double>::infinity(),
++                                    -std::numeric_limits<double>::infinity()};
++  for (const uint16_t kind : {uint16_t(kFlutterVenusV2RunKindText),
++                             uint16_t(kFlutterVenusV2RunKindPlaceholder),
++                             uint16_t(kFlutterVenusV2RunKindLineBreak)}) {
++    for (const double length : invalid_lengths) {
++      ParagraphWire wire;
++      wire.run.kind = kind;
++      if (kind != kFlutterVenusV2RunKindText) {
++        wire.run.text_offset = wire.run.text_length = 0u;
++        wire.run.font_family_offset = wire.run.font_family_length = 0u;
++      }
++      wire.run.text_vertical_align_length = length;
++      EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
++                    kEngineId, slot, lease, &wire.input, &wire.output),
++                kFlutterVenusV2InvalidArgument);
++    }
++  }
++  for (const double length : {std::nan(""),
++                              std::numeric_limits<double>::infinity(),
++                              -std::numeric_limits<double>::infinity()}) {
++    ParagraphWire wire;
++    wire.run.text_vertical_align = 6u;
++    wire.run.text_vertical_align_length = length;
++    EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
++                  kEngineId, slot, lease, &wire.input, &wire.output),
++              kFlutterVenusV2InvalidArgument);
++  }
++
 +  ParagraphWire valid;
 +  valid.input.paragraph_token = 0u;
 +  valid.input.line_metric_capacity = 0u;
@@ -10903,6 +10977,7 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +  EXPECT_EQ(valid.output.status, valid_status);
 +  EXPECT_EQ(valid.output.truncated, 1u);
 +  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityPreservedWhitespace, 0u);
++  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityTextVerticalAlignLength, 0u);
 +  valid.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
 +  EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
 +                kEngineId, slot, lease, &valid.input, &valid.output),
@@ -11115,7 +11190,8 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +  // line_height > 0: 两个 run 都声明行高倍数 (CSS `line-height: <number>`, height_mode=Multiplier)。
 +  const auto lay = [&](double size0, double size1, uint16_t align1,
 +                       const std::string& text1 = "b",
-+                       double max_width = 200.0, double line_height = 0.0) {
++                       double max_width = 200.0, double line_height = 0.0,
++                       double length = 0.0) {
 +    ParagraphWire w;
 +    const bool two = size0 > 0.0;
 +    w.text = (two ? std::string("A") : std::string()) + text1;
@@ -11128,6 +11204,7 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +    r1.text_length = static_cast<uint32_t>(text1.size());
 +    r1.font_size = size1;
 +    r1.text_vertical_align = align1;
++    r1.text_vertical_align_length = length;
 +    if (line_height > 0.0) {
 +      r0.height_mode = r1.height_mode = 2u;
 +      r0.height = r1.height = line_height;
@@ -11170,6 +11247,15 @@ index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd0
 +  EXPECT_NEAR(bottom.second.bottom, bottom.line.height, 0.5)
 +      << "bottom: 小字盒底贴行盒下沿";
 +  EXPECT_DOUBLE_EQ(bottom.line.height, base.line.height);
++
++  for (const double length : {-1.0, 0.0, 1.0}) {
++    const Laid shifted = lay(40.0, 16.0, 6u, "b", 200.0, 0.0, length);
++    ASSERT_EQ(shifted.status, kFlutterVenusV2Ok);
++    EXPECT_NEAR(shifted.second.top, base.second.top - length, 0.0001);
++    EXPECT_NEAR(shifted.second.bottom, base.second.bottom - length, 0.0001);
++    EXPECT_DOUBLE_EQ(shifted.first.top, base.first.top);
++    EXPECT_DOUBLE_EQ(shifted.line.height, base.line.height);
++  }
 +
 +  // top 盒比其余内容高: 行盒向下长, 其余内容 (基线组) 留在行顶。
 +  const Laid tall_base = lay(16.0, 40.0, 0u);
@@ -12450,10 +12536,10 @@ index 67d9d16727c5bd8921fc72386bdd6433dcbf62c9..6e5ecc7d564b85a1a89ca6b1e9aa5b79
  # Any files that are built by clients (client_wrapper code, library headers for
 diff --git a/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h b/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..b3fc40de416470c6c0aa1ad319e4185e2c925b85
+index 0000000000000000000000000000000000000000..b8f8ae19fd8030612c524176f8d294540716e393
 --- /dev/null
 +++ b/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h
-@@ -0,0 +1,592 @@
+@@ -0,0 +1,596 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -12534,7 +12620,8 @@ index 0000000000000000000000000000000000000000..b3fc40de416470c6c0aa1ad319e4185e
 +  kFlutterVenusV2CapabilityFontFingerprint = 1u << 3,
 +  kFlutterVenusV2CapabilityPreservedWhitespace = 1u << 4,
 +  kFlutterVenusV2CapabilityNoSoftWrapRanges = 1u << 5,
-+  kFlutterVenusV2CapabilityKnownMask       = 0x3du,
++  kFlutterVenusV2CapabilityTextVerticalAlignLength = 1u << 6,
++  kFlutterVenusV2CapabilityKnownMask       = 0x7du,
 +  // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
 +  // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
 +  // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -12871,10 +12958,13 @@ index 0000000000000000000000000000000000000000..b3fc40de416470c6c0aa1ad319e4185e
 +  uint16_t placeholder_baseline;
 +  /// 原 `uint32_t reserved1` 的前半 (偏移 100, 宽 2; 与 reserved0 -> height_mode 同一处置)。
 +  /// kind=Text 专用: 摊成这个 run 的**非替换 inline 包装盒**的 CSS vertical-align,
-+  /// 口径同 `placeholder_alignment`, 只收 0=baseline / 1=top / 3=bottom
-+  /// (对齐**行盒**上/下沿, CSS 2.1 §10.8.1); 其余值与非文本 run 上的非 0 均为非法参数。
++  /// 0=baseline / 1=top / 3=bottom (对齐行盒) / 6=length (有符号 CSS px)。
++  /// 其余值与非文本 run 上的非 0 均为非法参数。
 +  uint16_t text_vertical_align;
 +  uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
++  /// 仅 Text + text_vertical_align=6 活动: 有限有符号 CSS px, 正值抬高基线。
++  /// 其余状态必须逐位为正零。新旧 RunV2 shape 必须精确拒绝并配套部署。
++  double text_vertical_align_length;
 +} FlutterVenusTextLayoutRunV2;
 +
 +typedef struct FlutterVenusTextLayoutLineMetricV2 {
