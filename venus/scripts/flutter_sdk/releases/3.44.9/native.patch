@@ -9994,10 +9994,10 @@ index 0000000000000000000000000000000000000000..8d503eae99c5dee5e2b10eeade205605
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc5f9d65b7
+index 0000000000000000000000000000000000000000..6b48dd7c514b66541f5118e5954c5fd072507bf5
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
-@@ -0,0 +1,1587 @@
+@@ -0,0 +1,1726 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -10025,8 +10025,12 @@ index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc
 +#include "flutter/lib/ui/text/venus_text_layout_paragraph_store.h"
 +#include "flutter/shell/common/venus_text_layout_registry.h"
 +#include "flutter/shell/common/venus_text_layout_service.h"
++#include "flutter/txt/src/txt/asset_font_manager.h"
 +#include "flutter/txt/src/txt/paragraph.h"
++#include "flutter/txt/src/txt/platform.h"
 +#include "gtest/gtest.h"
++#include "third_party/skia/include/core/SkFontMgr.h"
++#include "third_party/skia/include/core/SkTypeface.h"
 +
 +namespace flutter {
 +namespace testing {
@@ -10384,6 +10388,26 @@ index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc
 +  auto fonts = std::make_shared<FontCollection>();
 +  fonts->SetupDefaultFontManager(0u);
 +  fonts->RegisterTestFonts();
++  return fonts;
++}
++
++std::shared_ptr<FontCollection> MakeRobotoFonts() {
++  auto fonts = MakeFonts();
++  // RegisterTestFonts maps unknown families to FlutterTest. Replace that test
++  // manager with the SDK's actual Roboto face for these CSS geometry controls.
++  auto typeface = txt::GetDefaultFontManager()->makeFromFile(
++      "flutter/txt/third_party/fonts/Roboto-Regular.ttf");
++  EXPECT_NE(typeface, nullptr);
++  if (!typeface) {
++    return nullptr;
++  }
++  SkString family;
++  typeface->getFamilyName(&family);
++  EXPECT_STREQ(family.c_str(), "Roboto");
++  auto provider = std::make_unique<txt::TypefaceFontAssetProvider>();
++  provider->RegisterTypeface(std::move(typeface), "Roboto");
++  fonts->GetFontCollection()->SetTestFontManager(
++      sk_make_sp<txt::AssetFontManager>(std::move(provider)));
 +  return fonts;
 +}
 +
@@ -11221,8 +11245,14 @@ index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc
 +  uint64_t lease = 0;
 +  bool valid = false;
 +
-+  explicit FloatProfileSession(uint64_t id) : engine(id) {
-+    generation = VenusTextLayoutRegistry::Register(engine, MakeFonts(), false);
++  explicit FloatProfileSession(
++      uint64_t id,
++      std::shared_ptr<FontCollection> fonts = MakeFonts())
++      : engine(id) {
++    if (!fonts) {
++      return;
++    }
++    generation = VenusTextLayoutRegistry::Register(engine, std::move(fonts), false);
 +    if (generation != 0 &&
 +        VenusTextLayoutRegistry::GetApi(engine, sizeof(api), &api) ==
 +            kFlutterVenusV2Ok) {
@@ -11396,6 +11426,76 @@ index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc
 +  EXPECT_GE(clearance.lines.front().baseline, 60);
 +  EXPECT_DOUBLE_EQ(clearance.output.first_baseline,
 +                   clearance.lines.front().baseline);
++
++  // CSS normal/normal does not permit an emergency break inside a word.
++  // Measure the real Roboto glyphs first; the corpus must exceed the full band.
++  FloatProfileSession roboto(0x5741564531460092ull, MakeRobotoFonts());
++  ASSERT_TRUE(roboto.valid);
++  const std::string long_word =
++      "SupercalifragilisticexpialidociousSupercalifragilisticexpialidocious";
++  FloatParagraphWire unbounded(long_word);
++  unbounded.input.max_width = 1e7;
++  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(
++                roboto.engine, roboto.slot, roboto.lease, &unbounded.input,
++                &unbounded.output),
++            kFlutterVenusV2Ok);
++  ASSERT_EQ(unbounded.output.line_metric_count, 1u);
++  const double word_width = unbounded.lines.front().width;
++  ASSERT_GT(word_width, 200.0);
++
++  // The default Flutter path retains its existing cluster wrapping.
++  FloatParagraphWire default_wrapping(long_word);
++  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(
++                roboto.engine, roboto.slot, roboto.lease,
++                &default_wrapping.input, &default_wrapping.output),
++            kFlutterVenusV2Ok);
++  EXPECT_GT(default_wrapping.output.line_metric_count, 1u);
++  EXPECT_LE(default_wrapping.lines.front().width, 200.0);
++
++  FloatParagraphWire overflowing(long_word);
++  rect = {0, 50, 0, 50, kVenusFloatExclusionSideLeftV1, 0};
++  ASSERT_EQ(roboto.Layout(overflowing, &profile), kFlutterVenusV2Ok);
++  EXPECT_EQ(overflowing.output.truncated, 0u);
++  ASSERT_EQ(overflowing.output.line_metric_count, 1u);
++  EXPECT_DOUBLE_EQ(overflowing.lines.front().left, 0.0);
++  EXPECT_GE(overflowing.lines.front().baseline - overflowing.lines.front().ascent,
++            50.0);
++  EXPECT_GT(overflowing.lines.front().width, 200.0);
++  EXPECT_NEAR(overflowing.lines.front().width, word_width, 0.01);
++  for (uint32_t i = 0; i < overflowing.output.fragment_rect_count; ++i) {
++    EXPECT_EQ(overflowing.fragments[i].line_number, 0u);
++  }
++
++  // An earlier legal word stays beside the float; the long word clears intact.
++  FloatParagraphWire preceded("x " + long_word);
++  ASSERT_EQ(roboto.Layout(preceded, &profile), kFlutterVenusV2Ok);
++  ASSERT_EQ(preceded.output.line_metric_count, 2u);
++  EXPECT_DOUBLE_EQ(preceded.lines[0].left, 50.0);
++  EXPECT_DOUBLE_EQ(preceded.lines[1].left, 0.0);
++  EXPECT_GE(preceded.lines[1].baseline - preceded.lines[1].ascent, 50.0);
++  EXPECT_NEAR(preceded.lines[1].width, word_width, 0.01);
++
++  // Legal word/ZWSP boundaries continue to wrap beside the float.
++  for (const std::string& text : {
++           std::string("MMMMMMMM MMMMMMMM MMMMMMMM"),
++           std::string("MMMMMMMM\xE2\x80\x8BMMMMMMMM\xE2\x80\x8BMMMMMMMM")}) {
++    SCOPED_TRACE(text);
++    FloatParagraphWire breakable(text);
++    breakable.input.paragraph_height_multiple = 1.25;
++    breakable.run.height = 1.25;
++    ASSERT_EQ(roboto.Layout(breakable, &profile), kFlutterVenusV2Ok);
++    EXPECT_EQ(breakable.output.truncated, 0u);
++    EXPECT_GT(breakable.output.line_metric_count, 1u);
++    EXPECT_DOUBLE_EQ(breakable.lines.front().left, 50.0);
++    EXPECT_NEAR(breakable.lines.front().baseline - breakable.lines.front().ascent,
++                0.0, 0.01);
++    EXPECT_LE(breakable.lines.front().width, 150.0);
++  }
++
++  FloatParagraphWire hard_break("MMMM\nMMMM");
++  hard_break.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
++  ASSERT_EQ(roboto.Layout(hard_break, &profile), kFlutterVenusV2Ok);
++  EXPECT_EQ(hard_break.output.line_metric_count, 2u);
 +}
 +
 +TEST(VenusTextLayoutParityV2, FloatProfileV1NoWrapKeepsSingleLine) {
@@ -11409,6 +11509,45 @@ index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc
 +  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
 +  EXPECT_EQ(paragraph.output.line_metric_count, 1u);
 +  EXPECT_GT(paragraph.lines.front().width, paragraph.input.max_width);
++
++  // nowrap overflows from the available first-line origin instead of clearing.
++  FloatProfileSession roboto(0x5741564531460093ull, MakeRobotoFonts());
++  ASSERT_TRUE(roboto.valid);
++  rect.right = 50;
++  FloatParagraphWire nowrap(
++      "mixed English words that should wrap around the float on the left side");
++  nowrap.input.soft_wrap = 0;
++  nowrap.input.paragraph_height_multiple = 1.25;
++  nowrap.run.height = 1.25;
++  ASSERT_EQ(roboto.Layout(nowrap, &profile), kFlutterVenusV2Ok);
++  EXPECT_EQ(nowrap.output.truncated, 0u);
++  ASSERT_EQ(nowrap.output.line_metric_count, 1u);
++  EXPECT_DOUBLE_EQ(nowrap.lines.front().left, 50.0);
++  EXPECT_NEAR(nowrap.lines.front().baseline - nowrap.lines.front().ascent,
++              0.0, 0.01);
++  EXPECT_GT(nowrap.lines.front().width, 200.0);
++
++  // Both public encodings of pre preserve spaces/LF and suppress soft wrapping.
++  for (bool paragraph_no_wrap : {false, true}) {
++    SCOPED_TRACE(paragraph_no_wrap);
++    FloatParagraphWire pre("mixed English words   keep spaces\n"
++                           "second explicit line   keeps spaces");
++    pre.input.soft_wrap = paragraph_no_wrap ? 0 : 1;
++    pre.run.whitespace_mode = paragraph_no_wrap
++                                  ? kFlutterVenusV2WhitespacePreserve
++                                  : kFlutterVenusV2WhitespacePreserveNoSoftWrap;
++    pre.input.paragraph_height_multiple = 1.25;
++    pre.run.height = 1.25;
++    rect.bottom = 10;
++    ASSERT_EQ(roboto.Layout(pre, &profile), kFlutterVenusV2Ok);
++    EXPECT_EQ(pre.output.truncated, 0u);
++    ASSERT_EQ(pre.output.line_metric_count, 2u);
++    EXPECT_DOUBLE_EQ(pre.lines[0].left, 50.0);
++    EXPECT_NEAR(pre.lines[0].baseline - pre.lines[0].ascent, 0.0, 0.01);
++    EXPECT_DOUBLE_EQ(pre.lines[1].left, 0.0);
++    EXPECT_NEAR(pre.lines[1].baseline - pre.lines[1].ascent, 20.0, 0.01);
++    EXPECT_DOUBLE_EQ(pre.lines[0].height, 20.0);
++  }
 +}
 +
 +TEST(VenusTextLayoutParityV2, FloatProfileV1FiniteDoubleScalarBoundary) {

@@ -657,7 +657,7 @@ index de2dee3116103bad4c81540ddeaafc4b0018e720..a1b2257ca2d7a5927daa7322f17716c4
          return false;
      }
 diff --git a/modules/skparagraph/src/TextWrapper.cpp b/modules/skparagraph/src/TextWrapper.cpp
-index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdcbb73138c 100644
+index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4ecb1ca70 100644
 --- a/modules/skparagraph/src/TextWrapper.cpp
 +++ b/modules/skparagraph/src/TextWrapper.cpp
 @@ -2,6 +2,8 @@
@@ -686,9 +686,11 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
  // Since we allow cluster clipping when they don't fit
  // we have to work with stretches - parts of clusters
  void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool applyRoundingHack) {
-@@ -59,12 +71,16 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -58,13 +70,19 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+     fClip.startFrom(fEndLine.startCluster(), fEndLine.startPos());
  
      LineBreakerWithLittleRounding breaker(maxWidth, applyRoundingHack);
++    const bool wordBoundaryWrap = !fParent->paragraphStyle().getVenusFloatExclusions().empty();
      Cluster* nextNonBreakingSpace = nullptr;
 +    bool protectedWord = false;
      for (auto cluster = fEndLine.endCluster(); cluster < endOfClusters; ++cluster) {
@@ -696,15 +698,24 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
          } else if (
                  // TODO: Trying to deal with flutter rounding problem. Must be removed...
                  SkScalar width = fWords.width() + fClusters.width() + cluster->width();
--                breaker.breakLine(width)) {
-+                !preservesCluster(cluster) && breaker.breakLine(width)) {
++                !preservesCluster(cluster) && (!wordBoundaryWrap || !fWords.empty()) &&
+                 breaker.breakLine(width)) {
 +            // Retry the complete protected word after the previous legal break.
 +            // With no previous word it may overflow, but never splits its range.
 +            if (protectedWord && !fWords.empty()) break;
              if (cluster->isWhitespaceBreak()) {
                  // It's the end of the word
                  fClusters.extend(cluster);
-@@ -94,7 +110,8 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -90,11 +108,17 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+                 break;
+             }
+ 
++            // Venus CSS float paragraphs may overflow their first whole word,
++            // but later words restart after the preceding legal boundary.
++            // The default Flutter path keeps its emergency cluster breaking.
++            if (wordBoundaryWrap) break;
++
+             // Walk further to see if there is a too long word, cluster or glyph
              SkScalar nextWordLength = fClusters.width();
              SkScalar nextShortWordLength = nextWordLength;
              for (auto further = cluster; further != endOfClusters; ++further) {
@@ -714,7 +725,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
                      break;
                  }
                  if (further->run().isPlaceholder()) {
-@@ -102,7 +119,8 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -102,7 +126,8 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
                    break;
                  }
  
@@ -724,7 +735,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
                      // The cluster is spaces but not the end of the word in a normal sense
                      nextNonBreakingSpace = further;
                      nextShortWordLength = nextWordLength;
-@@ -163,11 +181,15 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -163,11 +188,15 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
              fWords.extend(cluster);
          } else {
              fClusters.extend(cluster);
@@ -742,7 +753,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
              }
          }
  
-@@ -213,11 +235,12 @@ void TextWrapper::trimEndSpaces(TextAlign align) {
+@@ -213,11 +242,12 @@ void TextWrapper::trimEndSpaces(TextAlign align) {
      fEndLine.saveBreak();
      // Skip all space cluster at the end
      for (auto cluster = fEndLine.endCluster();
@@ -757,7 +768,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
  }
  
  SkScalar TextWrapper::getClustersTrimmedWidth() {
-@@ -229,8 +252,9 @@ SkScalar TextWrapper::getClustersTrimmedWidth() {
+@@ -229,8 +259,9 @@ SkScalar TextWrapper::getClustersTrimmedWidth() {
              continue;
          }
          if (trailingSpaces) {
@@ -769,7 +780,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
                  trailingSpaces = false;
              }
              continue;
-@@ -258,12 +282,14 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
+@@ -258,12 +289,14 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
      // It's a soft line break so we need to move lineStart forward skipping all the spaces
      auto width = fEndLine.widthWithGhostSpaces();
      auto cluster = fEndLine.breakCluster() + 1;
@@ -786,7 +797,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
          // In case of a soft line break by the whitespace
          // fBreak should point to the beginning of the next line
          // (it only matters when there are trailing spaces)
-@@ -277,6 +303,7 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
+@@ -277,6 +310,7 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
  void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
                                       SkScalar maxWidth,
                                       const AddLineToParagraph& addLine) {
@@ -794,7 +805,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
      fHeight = 0;
      fMinIntrinsicWidth = std::numeric_limits<SkScalar>::min();
      fMaxIntrinsicWidth = std::numeric_limits<SkScalar>::min();
-@@ -295,6 +322,26 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -295,6 +329,26 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
      auto disableLastDescent = parent->paragraphStyle().getTextHeightBehavior() & TextHeightBehavior::kDisableLastDescent;
      bool firstLine = true; // We only interested in fist line if we have to disable the first ascent
  
@@ -821,7 +832,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
      SkScalar softLineMaxIntrinsicWidth = 0;
      fEndLine = TextStretch(span.data(), span.data(), parent->strutForceHeight());
      auto start = span.data();
-@@ -302,80 +349,151 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -302,80 +356,152 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
      InternalLineMetrics maxRunMetrics;
      bool needEllipsis = false;
      while (fEndLine.endCluster() != end) {
@@ -863,7 +874,8 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
 +                wordsWidth = fEndLine.width();
 +                fEndLine = savedEndLine;
 +            }
-+            if (hasProfile && band.width < maxWidth &&
++            if (hasProfile && !preservesCluster(lineStart.startCluster()) &&
++                band.width < maxWidth &&
 +                (wordsWidth > band.width ||
 +                 (fWords.empty() && (fTooLongWord || fTooLongCluster))) &&
 +                std::isfinite(band.nextTop) && band.nextTop > fHeight) {
@@ -972,7 +984,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
 +                fEndLine.metrics().fDescent = fEndLine.metrics().fRawDescent;
              }
 -        }
- 
+-
 -        // Before we update the line metrics with struts,
 -        // let's save it for GetRectsForRange(RectHeightStyle::kMax)
 -        maxRunMetrics = fEndLine.metrics();
@@ -988,7 +1000,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
 -        }
 -        ClusterRange clusters(fEndLine.startCluster() - start, fEndLine.endCluster() - start + 1);
 -        ClusterRange clustersWithGhosts(fEndLine.startCluster() - start, startLine - start);
--
+ 
 -        if (disableFirstAscent && firstLine) {
 -            fEndLine.metrics().fAscent = fEndLine.metrics().fRawAscent;
 -        }
@@ -1034,7 +1046,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
          firstLine = false;
  
          if (fEndLine.empty()) {
-@@ -389,10 +507,13 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -389,10 +515,13 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
  
          addLine(textExcludingSpaces,
                  text,
@@ -1050,7 +1062,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
                  SkVector::Make(fEndLine.width(), lineHeight),
                  fEndLine.metrics(),
                  needEllipsis && !fHardLineBreak);
-@@ -484,6 +605,12 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -484,6 +613,12 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
              parent->strutMetrics().updateLineMetrics(fEndLine.metrics());
          }
  
@@ -1063,7 +1075,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..eb637b79bb678d5510560fae2f4bdbdc
          ClusterRange clusters(fEndLine.breakCluster() - start, fEndLine.endCluster() - start);
          addLine(fEndLine.breakCluster()->textRange(),
                  fEndLine.breakCluster()->textRange(),
-@@ -493,7 +620,7 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -493,7 +628,7 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
                  0,
                  0,
                  0,

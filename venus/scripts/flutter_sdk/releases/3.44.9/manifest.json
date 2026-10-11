@@ -48,7 +48,7 @@
       "legacy_commit_count": 5,
       "patch_file": "skia.patch",
       "rounding_policy": "Preserve official e9ed4fc InternalLineMetrics::height() rounding on the default Flutter path. The explicitly authorized one-line legacy Run.h round restoration is migrated; Venus honorZeroHeight support remains additive and disabled by default.",
-      "patch_sha256": "14983e7c97577b683d2df7da66437863ddbb6d3b4ae63c1a395106610b0e38bb",
+      "patch_sha256": "78d7adf5469bfaa74871847d1dd940e3a467c9e70d3c397b395c28014d3bbbb6",
       "files": {
         "modules/skparagraph/include/Metrics.h": {
           "base_blob": "2c9821ae2832b994b33615a67bd895cb66cba402",
@@ -125,7 +125,7 @@
         "modules/skparagraph/src/TextWrapper.cpp": {
           "base_blob": "718687cd2ba982fbeeae2f735abdc6e95618b724",
           "base_mode": "100644",
-          "patched_blob": "eb637b79bb678d5510560fae2f4bdbdcbb73138c",
+          "patched_blob": "a3d028385e65e529cbed5d2c62aeb7e4ecb1ca70",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextWrapper.h": {
@@ -135,7 +135,7 @@
           "patched_mode": "100644"
         }
       },
-      "patched_revision": "4b46d7fcf93f0e8f44585a0d882ea0a2e4c97395"
+      "patched_revision": "2387272120f66b05d76573c14437e559bfaaa6a5"
     }
   },
   "excluded_source_changes": [
@@ -153,10 +153,10 @@
     "push_requires_explicit_user_authorization": true,
     "allow_followup_maintenance_commits": true
   },
-  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes.",
+  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes. Venus nonempty float-profile legal-break overflow and existing no-soft-wrap clearance controls; ordinary Flutter and empty-profile behavior retained.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "be64288fda87f73aa485fd0ba19e200f4cf015ab9f6e897789fc701fc5e9cf3f",
+    "sha256": "b8bc7fbaf13d18999711ecebd53d8aba6474a999ed5ff0ee624fdd8f54bef359",
     "expected_file_count": 46,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
@@ -336,7 +336,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "9d8e600297a57d578292f18f36709bbc5f9d65b7",
+        "patched_blob": "6b48dd7c514b66541f5118e5954c5fd072507bf5",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_stress.cc": {
@@ -437,7 +437,7 @@
       }
     },
     "base_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
-    "patched_commit": "07fd521b5cb4a527e42ad80e94db4c84d762a892"
+    "patched_commit": "b916d29afa262aad6a75041d9543a0446e111b19"
   },
   "canonical_source": "Venus scripts/flutter_sdk; Flutter checkout contains generated applied code only.",
   "release_matrix": {
