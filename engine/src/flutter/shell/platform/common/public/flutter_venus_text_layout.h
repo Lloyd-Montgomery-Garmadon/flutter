@@ -514,11 +514,50 @@ FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphV2(
     const FlutterVenusTextLayoutParagraphInputV2* input,
     FlutterVenusTextLayoutParagraphOutputV2* output);
 
+/// Venus-only float profile. Existing ParagraphV2 ABI and default behavior are
+/// unchanged; the new symbol is optional and callers must probe it separately.
+typedef enum VenusFloatExclusionSideV1 {
+  kVenusFloatExclusionSideLeftV1 = 1,
+  kVenusFloatExclusionSideRightV1 = 2,
+} VenusFloatExclusionSideV1;
+
+/// An occupied float rectangle in Paragraph-local CSS coordinates. top may be
+/// negative for a float starting before the Paragraph. All coordinates must be
+/// finite, bottom > top, and right >= left. side is VenusFloatExclusionSideV1.
+typedef struct VenusFloatExclusionV1 {
+  double top;
+  double bottom;
+  double left;
+  double right;
+  uint32_t side;
+  uint32_t reserved;  ///< 0
+} VenusFloatExclusionV1;
+
+typedef struct VenusParagraphExclusionsV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;  ///< 1
+  uint32_t count;
+  uint32_t reserved;  ///< 0
+  const VenusFloatExclusionV1* exclusions;
+} VenusParagraphExclusionsV1;
+
+/// The profile and its array are borrowed only for this synchronous call. The
+/// engine must copy them before retaining a Paragraph artifact. Empty profiles
+/// use the existing ParagraphV2 path; nonempty profiles require this symbol and
+/// must fail closed when it is unavailable. input.max_width is the full content
+/// width; exclusion line origins are shared by metrics, paint, and hit testing.
+FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithExclusionsV1(
+    uint64_t engine_id,
+    uint32_t slot,
+    uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    FlutterVenusTextLayoutParagraphOutputV2* output);
+
 /* Version-scoped ownership for prelaid Paragraph artifacts. Begin must happen
    before the first owned deposit. Bind attaches an acquired slot lease to the
-   owner. Seal is the atomic reserve barrier: it succeeds only after every
-   bound lease has been returned and the complete owner set exists. Before a
-   successful Seal, Claim cannot consume any artifact from that set. */
+   owner; Seal succeeds only after every bound lease has been returned. Claim
+   remains token-based but cannot consume an owned artifact before Seal. */
 FLUTTER_EXPORT int32_t FlutterVenusTextLayoutArtifactOwnerBeginV1(
     uint64_t engine_id,
     uint64_t registration_generation,

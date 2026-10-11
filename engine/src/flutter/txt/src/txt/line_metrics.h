@@ -45,6 +45,8 @@ class LineMetrics {
   // The left edge of the line. The right edge can be obtained with `left +
   // width`
   double left = 0.0;
+  // Actual line-box origin, including any float clearance gap.
+  double top = 0.0;
   // The y position of the baseline for this line from the top of the paragraph.
   double baseline = 0.0;
   // Zero indexed line number.

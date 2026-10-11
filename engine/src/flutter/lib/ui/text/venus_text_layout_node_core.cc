@@ -467,7 +467,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
     line_descents.reserve(probe.lines.size());
     double line_top_y = 0.0;
     for (const ParagraphLineOut& line : probe.lines) {
-      const double baseline_from_line_top = line.baseline - line_top_y;
+      const double top = input.exclusions.empty() ? line_top_y : line.top;
+      const double baseline_from_line_top = line.baseline - top;
       line_ascents.push_back(baseline_from_line_top);
       line_descents.push_back(line.height - baseline_from_line_top);
       line_top_y += line.height;
@@ -557,7 +558,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
     line_descents.reserve(probe.lines.size());
     double line_top_y = 0.0;
     for (const ParagraphLineOut& line : probe.lines) {
-      const double baseline_from_line_top = line.baseline - line_top_y;
+      const double top = input.exclusions.empty() ? line_top_y : line.top;
+      const double baseline_from_line_top = line.baseline - top;
       line_ascents.push_back(baseline_from_line_top);
       line_descents.push_back(line.height - baseline_from_line_top);
       line_top_y += line.height;
@@ -588,6 +590,11 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
   }
 
   txt::ParagraphStyle paragraph_style;
+  paragraph_style.venus_float_exclusions.reserve(input.exclusions.size());
+  for (const auto& e : input.exclusions) {
+    paragraph_style.venus_float_exclusions.push_back(
+        {e.top, e.bottom, e.left, e.right, e.side});
+  }
   paragraph_style.text_align = ToTxtAlign(input.text_align);
   paragraph_style.text_direction = ToTxtDirection(input.text_direction);
   paragraph_style.max_lines = input.max_lines == 0u
@@ -742,11 +749,16 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
                     wire::ErrorFieldId::kSemanticsCombination,
                     wire::ItemErrorDetail::kParagraphNull);
   }
-  const double layout_width =
-      (input.soft_wrap && std::isfinite(input.max_width))
-          ? input.max_width
-          : std::numeric_limits<double>::infinity();
+  const double layout_width = ((input.soft_wrap || !input.exclusions.empty()) &&
+                               std::isfinite(input.max_width))
+                                  ? input.max_width
+                                  : std::numeric_limits<double>::infinity();
   paragraph->Layout(layout_width);
+  if (!input.exclusions.empty() && !std::isfinite(paragraph->GetHeight())) {
+    return FailItem(wire::ItemStatus::kParagraphBuildFailed,
+                    wire::ErrorFieldId::kSemanticsCombination,
+                    wire::ItemErrorDetail::kUnsupportedCombination);
+  }
 
   out_metrics->width = paragraph->GetLongestLine();
   out_metrics->height = paragraph->GetHeight();
@@ -760,6 +772,7 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
     ParagraphLineOut out_line;
     out_line.line_number = static_cast<uint32_t>(lm.line_number);
     out_line.left = lm.left;
+    out_line.top = lm.top;
     out_line.width = lm.width;
     out_line.height = lm.height;
     out_line.baseline = lm.baseline;

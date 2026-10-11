@@ -6,7 +6,9 @@
 #define FLUTTER_TXT_SRC_TXT_PARAGRAPH_STYLE_H_
 
 #include <climits>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #include "font_style.h"
 #include "font_weight.h"
@@ -53,8 +55,16 @@ enum TextHeightBehavior {
   kDisableAll = 0x1 | 0x2,
 };
 
+struct FloatExclusion {
+  double top, bottom, left, right;
+  uint32_t side;
+};
+
 class ParagraphStyle {
  public:
+  // Empty by default: ordinary Flutter paragraphs retain their original path.
+  std::vector<FloatExclusion> venus_float_exclusions;
+
   // Default TextStyle. Used in GetTextStyle() to obtain the base TextStyle to
   // inherit off of.
   int font_weight = FontWeight::normal;

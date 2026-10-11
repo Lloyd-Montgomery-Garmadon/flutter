@@ -342,7 +342,8 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     uint32_t slot,
     uint64_t lease_token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
-    FlutterVenusTextLayoutParagraphOutputV2* output) {
+    FlutterVenusTextLayoutParagraphOutputV2* output,
+    const VenusParagraphExclusionsV1* exclusions) {
   if (output == nullptr) {
     return kFlutterVenusV2InvalidArgument;
   }
@@ -372,7 +373,7 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     service->Retain();
   }
   const ScopedServiceReference retained(service);
-  return service->LayoutParagraph(slot, lease_token, input, output);
+  return service->LayoutParagraph(slot, lease_token, input, output, exclusions);
 }
 
 int32_t VenusTextLayoutRegistry::BeginArtifactOwner(
@@ -467,6 +468,19 @@ extern "C" FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphV2(
     FlutterVenusTextLayoutParagraphOutputV2* output) {
   return flutter::VenusTextLayoutRegistry::LayoutParagraph(
       engine_id, slot, lease_token, input, output);
+}
+
+extern "C" FLUTTER_EXPORT int32_t
+FlutterVenusTextLayoutParagraphWithExclusionsV1(
+    uint64_t engine_id,
+    uint32_t slot,
+    uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    FlutterVenusTextLayoutParagraphOutputV2* output) {
+  return flutter::VenusTextLayoutRegistry::LayoutParagraph(
+      engine_id, slot, lease_token, exclusions == nullptr ? nullptr : input,
+      output, exclusions);
 }
 
 extern "C" FLUTTER_EXPORT int32_t

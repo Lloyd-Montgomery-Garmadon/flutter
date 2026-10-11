@@ -245,6 +245,7 @@ std::vector<LineMetrics>& ParagraphSkia::GetLineMetrics() {
       txtm.height = skm.fHeight;
       txtm.width = skm.fWidth;
       txtm.left = skm.fLeft;
+      txtm.top = skm.fTop;
       txtm.baseline = skm.fBaseline;
       txtm.line_number = skm.fLineNumber;
 

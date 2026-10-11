@@ -936,7 +936,8 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     uint32_t slot,
     uint64_t token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
-    FlutterVenusTextLayoutParagraphOutputV2* output) {
+    FlutterVenusTextLayoutParagraphOutputV2* output,
+    const VenusParagraphExclusionsV1* exclusions) {
   if (output == nullptr) {
     return kFlutterVenusV2InvalidArgument;
   }
@@ -951,6 +952,33 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   const int32_t validation = ValidateParagraphInput(*input);
   if (validation != kFlutterVenusV2Ok) {
     return WriteParagraphStatus(output, validation);
+  }
+  // Borrowed wire memory is validated and copied before acquiring a slot.
+  std::vector<venus_text_layout::FloatExclusionView> owned_exclusions;
+  if (exclusions != nullptr) {
+    if (exclusions->struct_size != sizeof(*exclusions) ||
+        exclusions->abi_version != 1u) {
+      return WriteParagraphStatus(output, kFlutterVenusV2AbiMismatch);
+    }
+    if (exclusions->reserved != 0u ||
+        ((exclusions->count == 0u) != (exclusions->exclusions == nullptr))) {
+      return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
+    }
+    for (uint32_t i = 0; i < exclusions->count; ++i) {
+      const auto& e = exclusions->exclusions[i];
+      if (!std::isfinite(e.top) || !std::isfinite(e.bottom) ||
+          !std::isfinite(e.left) || !std::isfinite(e.right) ||
+          e.bottom <= e.top || e.right < e.left || e.reserved != 0u ||
+          (e.side != kVenusFloatExclusionSideLeftV1 &&
+           e.side != kVenusFloatExclusionSideRightV1)) {
+        return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
+      }
+    }
+    owned_exclusions.reserve(exclusions->count);
+    for (uint32_t i = 0; i < exclusions->count; ++i) {
+      const auto& e = exclusions->exclusions[i];
+      owned_exclusions.push_back({e.top, e.bottom, e.left, e.right, e.side});
+    }
   }
   std::shared_ptr<txt::FontCollection> fonts;
   uint64_t layout_font_epoch = 0u;
@@ -978,6 +1006,7 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   }
 
   venus_text_layout::ParagraphInputView view;
+  view.exclusions = std::move(owned_exclusions);
   view.locale = SliceUtf8(input->locale, input->locale_length, 0u,
                           input->locale_length);
   view.max_width = input->max_width;
@@ -1008,7 +1037,8 @@ int32_t VenusTextLayoutService::LayoutParagraph(
         r.whitespace_mode == kFlutterVenusV2WhitespacePreserve ||
         r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
     rv.no_soft_wrap =
-        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
+        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
+        (!view.exclusions.empty() && input->soft_wrap == 0u);
     if (!rv.is_placeholder && !rv.is_line_break) {
       rv.text = Utf8ToUtf16(input->text + r.text_offset, r.text_length);
     }
@@ -1097,7 +1127,9 @@ int32_t VenusTextLayoutService::LayoutParagraph(
             input->paragraph_token, input->max_width, layout_font_epoch,
             engine_id_, registration_generation_, /*snapshot_generation=*/0u,
             slot, std::move(laid_out), artifact_owner_id,
-            ParagraphInputChargeBytes(*input));
+            ParagraphInputChargeBytes(*input) +
+                view.exclusions.size() *
+                    sizeof(venus_text_layout::FloatExclusionView));
     if (deposit_status != kFlutterVenusV2Ok) {
       output->status = deposit_status;
     }

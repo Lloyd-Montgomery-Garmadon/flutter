@@ -161,7 +161,13 @@ struct ParagraphRunView {
   bool collapse_to_baseline = false;
 };
 
+struct FloatExclusionView {
+  double top, bottom, left, right;
+  uint32_t side;
+};
+
 struct ParagraphInputView {
+  std::vector<FloatExclusionView> exclusions;
   std::vector<ParagraphRunView> runs;
   std::string locale;
   double max_width = 0.0;
@@ -182,6 +188,7 @@ struct ParagraphLineOut {
   uint32_t line_number = 0u;
   double left = 0.0, width = 0.0, height = 0.0, baseline = 0.0;
   double ascent = 0.0, descent = 0.0;
+  double top = 0.0;  ///< 内部实际行顶；profile 的 clearance 不属于行高。
 };
 
 struct ParagraphFragmentOut {

@@ -141,6 +141,14 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   skia.setReplaceTabCharacters(true);
   skia.setApplyRoundingHack(false);
   skia.setHonorZeroHeightOverride(txt.honor_zero_height_override);
+  if (!txt.venus_float_exclusions.empty()) {
+    std::vector<skt::VenusFloatExclusion> exclusions;
+    exclusions.reserve(txt.venus_float_exclusions.size());
+    for (const auto& e : txt.venus_float_exclusions) {
+      exclusions.push_back({e.top, e.bottom, e.left, e.right, e.side});
+    }
+    skia.setVenusFloatExclusions(std::move(exclusions));
+  }
 
   return skia;
 }

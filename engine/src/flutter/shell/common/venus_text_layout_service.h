@@ -45,10 +45,12 @@ class VenusTextLayoutService final {
   ///
   /// 是 public 而 LayoutSync 是 private: 后者只经 ApiV2 的函数表被调 (有 Thunk),
   /// 而 ApiV2 已冻结加不进新指针, 所以段落走独立导出符号 -> 注册表直接调它。
-  int32_t LayoutParagraph(uint32_t slot,
-                          uint64_t token,
-                          const FlutterVenusTextLayoutParagraphInputV2* input,
-                          FlutterVenusTextLayoutParagraphOutputV2* output);
+  int32_t LayoutParagraph(
+      uint32_t slot,
+      uint64_t token,
+      const FlutterVenusTextLayoutParagraphInputV2* input,
+      FlutterVenusTextLayoutParagraphOutputV2* output,
+      const VenusParagraphExclusionsV1* exclusions = nullptr);
 
   int32_t BeginArtifactOwner(uint64_t expected_registration_generation,
                              uint64_t producer_generation,
