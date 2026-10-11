@@ -48,49 +48,94 @@
       "legacy_commit_count": 5,
       "patch_file": "skia.patch",
       "rounding_policy": "Preserve official e9ed4fc InternalLineMetrics::height() rounding on the default Flutter path. The explicitly authorized one-line legacy Run.h round restoration is migrated; Venus honorZeroHeight support remains additive and disabled by default.",
-      "patch_sha256": "5fe13a4ca5b1fc9f493567d187e93a41bd4d44e7deaf947237bab774dfcaa898",
+      "patch_sha256": "14983e7c97577b683d2df7da66437863ddbb6d3b4ae63c1a395106610b0e38bb",
       "files": {
+        "modules/skparagraph/include/Metrics.h": {
+          "base_blob": "2c9821ae2832b994b33615a67bd895cb66cba402",
+          "base_mode": "100644",
+          "patched_blob": "dbba25fbe09bc7486934c35b013125a3715eafdb",
+          "patched_mode": "100644"
+        },
         "modules/skparagraph/include/ParagraphStyle.h": {
           "base_blob": "0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57",
           "base_mode": "100644",
-          "patched_blob": "cd1657783032f17aed0e3c4433fa0c059abd26a1"
+          "patched_blob": "15a8495c73868326f87c14f10dc63bcf3fff0a80",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/include/TextStyle.h": {
+          "base_blob": "9a65834b8e9c84dae4e9a919787b122abdb54b18",
+          "base_mode": "100644",
+          "patched_blob": "6774f11ddd729591abb54dee454451eb5789b308",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/OneLineShaper.cpp": {
           "base_blob": "d36dfd86cb2ecd82883118d7717f0f9de1b776b3",
           "base_mode": "100644",
-          "patched_blob": "e168dfca4013bdc020fdbdba6d816395980f802f"
+          "patched_blob": "e168dfca4013bdc020fdbdba6d816395980f802f",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/OneLineShaper.h": {
           "base_blob": "e33f9d1414bc0694707e13b748b732adb4647628",
           "base_mode": "100644",
-          "patched_blob": "3bed8c1741700384d582bd8853470ea0a9960aa9"
+          "patched_blob": "3bed8c1741700384d582bd8853470ea0a9960aa9",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/ParagraphCache.cpp": {
           "base_blob": "e5862e1169b92ac2097ff02561bb374d7e153fdb",
           "base_mode": "100644",
-          "patched_blob": "98a1fa2de683342a60c70b1ee28c810ef73430b2"
+          "patched_blob": "8a3f3c9a84352a2bc395df1ed069832328a8e46e",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/ParagraphImpl.cpp": {
           "base_blob": "9ea8267545ac92f0c918e74dbaef80ab1e559249",
           "base_mode": "100644",
-          "patched_blob": "32898285fc5e6790806665f9ebed860fea0667cc"
+          "patched_blob": "e5bec56148dc8daf31a9c19b03b2d5c0f905c268",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/src/ParagraphImpl.h": {
+          "base_blob": "0fb0ba9a8e102db5140a1b219addf7cfe56df1ed",
+          "base_mode": "100644",
+          "patched_blob": "092f5467fb768a47d0d09125a2ce1405966488e1",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/Run.cpp": {
           "base_blob": "a1cfc403f8883bd403267a927b09fe9799d57b0e",
           "base_mode": "100644",
-          "patched_blob": "b0336033dd0ad08e573596348d5efd014ba0515e"
+          "patched_blob": "b0336033dd0ad08e573596348d5efd014ba0515e",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/Run.h": {
           "base_blob": "8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31",
           "base_mode": "100644",
-          "patched_blob": "40c7696fbe2e729f16984a2ddfd1a7d430c6929c"
+          "patched_blob": "40c7696fbe2e729f16984a2ddfd1a7d430c6929c",
+          "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextLine.cpp": {
           "base_blob": "bb60d70f9c34b964aa3dee799d5b846305f468de",
           "base_mode": "100644",
-          "patched_blob": "358f3468f8ad989b25fd361befb4d4edcecdcb1e"
+          "patched_blob": "8f964266c48d06f8d3c0f28a09d9885afaf45a19",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/src/TextStyle.cpp": {
+          "base_blob": "de2dee3116103bad4c81540ddeaafc4b0018e720",
+          "base_mode": "100644",
+          "patched_blob": "a1b2257ca2d7a5927daa7322f17716c4074b00ba",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/src/TextWrapper.cpp": {
+          "base_blob": "718687cd2ba982fbeeae2f735abdc6e95618b724",
+          "base_mode": "100644",
+          "patched_blob": "eb637b79bb678d5510560fae2f4bdbdcbb73138c",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/src/TextWrapper.h": {
+          "base_blob": "d4b89cf5c480a1ca3db90251e079142205d32bc6",
+          "base_mode": "100644",
+          "patched_blob": "7af5087de76b333f53ae5c6f58ff63858f59a43b",
+          "patched_mode": "100644"
         }
-      }
+      },
+      "patched_revision": "4b46d7fcf93f0e8f44585a0d882ea0a2e4c97395"
     }
   },
   "excluded_source_changes": [
@@ -108,11 +153,11 @@
     "push_requires_explicit_user_authorization": true,
     "allow_followup_maintenance_commits": true
   },
-  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration; the phase2 venus_text_layout_node_core.cc change remains deferred.",
+  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "4b80fdca6cf7aa5298038944cbbd63c0bce9415df9b51ac2f2459adf48022695",
-    "expected_file_count": 44,
+    "sha256": "be64288fda87f73aa485fd0ba19e200f4cf015ab9f6e897789fc701fc5e9cf3f",
+    "expected_file_count": 46,
     "files": {
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
         "base_blob": "9614f9b1f82deb442a9538ad3ef3abe4371b3fce",
@@ -130,6 +175,12 @@
         "base_blob": "ace605876d9be7379d54753591f54c32a941c1a3",
         "base_mode": "100644",
         "patched_blob": "7a6167b01b46221dcac24280c464b7304968991a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/lib/snapshot/BUILD.gn": {
+        "base_blob": "e4b52cac219859cd29f90be9adec0d7e8458a8f7",
+        "base_mode": "100644",
+        "patched_blob": "ceef6dd06b99a00092c25784e8d53c908f740eec",
         "patched_mode": "100644"
       },
       "engine/src/flutter/lib/ui/BUILD.gn": {
@@ -195,13 +246,13 @@
       "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "3cc2a5b02b715f67fb3c7ce308b1a98ea98789f2",
+        "patched_blob": "63a687e329cf1ec9bcf624827c4bb0eb5c84fa2f",
         "patched_mode": "100644"
       },
       "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "ef822911f4ff32d7f54b8c6301bbe77fa0efe261",
+        "patched_blob": "3b5b87b32d7afc18c9b7adbbc8f3d0bcd022fc34",
         "patched_mode": "100644"
       },
       "engine/src/flutter/lib/ui/text/venus_text_layout_paragraph_store.cc": {
@@ -249,31 +300,31 @@
       "engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "b5d1c27033bb65e6c7f5d2b34dc83d5591bdbb86",
+        "patched_blob": "7e8d876acffc0283ebdedd9dc52f769db9fe1c5b",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "ca977dc85116b7d9a47233f2cef26a0050a3aa2e",
+        "patched_blob": "3676e13bdd11fdd6762ad106495f8aec37151739",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "3c02b9768cb3097bcc8d69cd7ef77f0010e7d1c5",
+        "patched_blob": "ae3aa0029686f0bb67321902158a4f5d6a882fa6",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_service.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "9a28b37765f0bda95b407fc0b1711a662f3bba27",
+        "patched_blob": "01b0e98d70af4a641d3468938d9151d8ef461fa6",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_service.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "a22a9e27e51e6283b3ea5c357f567dee6bd05efd",
+        "patched_blob": "47a0ff0df4a9b85ea7c0c546e4f2d1e2f742cbf3",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_lifecycle_tests.cc": {
@@ -285,7 +336,7 @@
       "engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "0b343edce6a24c6b8b5ebb49899476c09d64519a",
+        "patched_blob": "9d8e600297a57d578292f18f36709bbc5f9d65b7",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_stress.cc": {
@@ -315,7 +366,7 @@
       "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "0218c3e067fc3001c8bc42962b65ae53511da179",
+        "patched_blob": "b3fc40de416470c6c0aa1ad319e4185e2c925b85",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/platform/darwin/ios/BUILD.gn": {
@@ -327,7 +378,13 @@
       "engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc": {
         "base_blob": "c611b5bd00796200b7edd6cc1ab438b0ac0d1c14",
         "base_mode": "100644",
-        "patched_blob": "34555abc10b28c030b9b297d7445953eefdc5c57",
+        "patched_blob": "92e177de480f87b7b8e8b1aa1c7cc6d02ce1fc78",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/skia/paragraph_skia.cc": {
+        "base_blob": "9c9401ae9cfc098a6c6af96965b3b74853ed113f",
+        "base_mode": "100644",
+        "patched_blob": "543ddaf9d8be3da6a08df561fd65b85fd7542cde",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/font_collection.cc": {
@@ -342,6 +399,12 @@
         "patched_blob": "0d7c0b6d9d700527635092bea95f99bf42e9f72d",
         "patched_mode": "100644"
       },
+      "engine/src/flutter/txt/src/txt/line_metrics.h": {
+        "base_blob": "05984c6e08ef4e82c14180fc9c310a90bcbee277",
+        "base_mode": "100644",
+        "patched_blob": "839f841e83a8d52322040bbe7fcf0015ca1c44a7",
+        "patched_mode": "100644"
+      },
       "engine/src/flutter/txt/src/txt/paragraph_style.cc": {
         "base_blob": "54fc7a326a995157c672f9a4f0ca53b81d2eb97f",
         "base_mode": "100644",
@@ -351,19 +414,19 @@
       "engine/src/flutter/txt/src/txt/paragraph_style.h": {
         "base_blob": "ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9",
         "base_mode": "100644",
-        "patched_blob": "77b44301b9b48c3fd350c6c6989cec4617585198",
+        "patched_blob": "4a47737eb2fe8bdc53f20c8a3bcb02339e2ac6b7",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/text_style.cc": {
         "base_blob": "1ca829923970bed75bd1f66940e07704694fae17",
         "base_mode": "100644",
-        "patched_blob": "b17297d6e8170fbc405e4b5e6c5c9307b7ca15c2",
+        "patched_blob": "702ed3c00e8c8c203c93ec51d0934a4f7d8fc17b",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/text_style.h": {
         "base_blob": "a2a4a2cc40324ae3cae612fd050aacd682c4bae6",
         "base_mode": "100644",
-        "patched_blob": "c54e87b9562cf083e160b2f2a07cc497c0020c67",
+        "patched_blob": "e7b71ddb83b0b1b01034174b999cdd6e11e9fa35",
         "patched_mode": "100644"
       },
       "packages/flutter/test/rendering/venus_cpp_text_layout_mvp_test.dart": {
@@ -371,14 +434,10 @@
         "base_mode": "000000",
         "patched_blob": "4ed743f863915a8c08b49dc4bbc2ae488bed9b3c",
         "patched_mode": "100644"
-      },
-      "engine/src/flutter/lib/snapshot/BUILD.gn": {
-        "base_blob": "e4b52cac219859cd29f90be9adec0d7e8458a8f7",
-        "base_mode": "100644",
-        "patched_blob": "ceef6dd06b99a00092c25784e8d53c908f740eec",
-        "patched_mode": "100644"
       }
-    }
+    },
+    "base_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
+    "patched_commit": "07fd521b5cb4a527e42ad80e94db4c84d762a892"
   },
   "canonical_source": "Venus scripts/flutter_sdk; Flutter checkout contains generated applied code only.",
   "release_matrix": {

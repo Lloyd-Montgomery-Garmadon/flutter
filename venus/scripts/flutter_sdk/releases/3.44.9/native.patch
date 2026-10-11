@@ -2756,10 +2756,10 @@ index 0000000000000000000000000000000000000000..15fc9efcbe94fe66568e7fa69cf315d2
 +}  // namespace flutter
 diff --git a/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc b/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98ea98789f2
+index 0000000000000000000000000000000000000000..63a687e329cf1ec9bcf624827c4bb0eb5c84fa2f
 --- /dev/null
 +++ b/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc
-@@ -0,0 +1,846 @@
+@@ -0,0 +1,862 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -3229,7 +3229,8 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +    line_descents.reserve(probe.lines.size());
 +    double line_top_y = 0.0;
 +    for (const ParagraphLineOut& line : probe.lines) {
-+      const double baseline_from_line_top = line.baseline - line_top_y;
++      const double top = input.exclusions.empty() ? line_top_y : line.top;
++      const double baseline_from_line_top = line.baseline - top;
 +      line_ascents.push_back(baseline_from_line_top);
 +      line_descents.push_back(line.height - baseline_from_line_top);
 +      line_top_y += line.height;
@@ -3319,7 +3320,8 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +    line_descents.reserve(probe.lines.size());
 +    double line_top_y = 0.0;
 +    for (const ParagraphLineOut& line : probe.lines) {
-+      const double baseline_from_line_top = line.baseline - line_top_y;
++      const double top = input.exclusions.empty() ? line_top_y : line.top;
++      const double baseline_from_line_top = line.baseline - top;
 +      line_ascents.push_back(baseline_from_line_top);
 +      line_descents.push_back(line.height - baseline_from_line_top);
 +      line_top_y += line.height;
@@ -3350,6 +3352,11 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +  }
 +
 +  txt::ParagraphStyle paragraph_style;
++  paragraph_style.venus_float_exclusions.reserve(input.exclusions.size());
++  for (const auto& e : input.exclusions) {
++    paragraph_style.venus_float_exclusions.push_back(
++        {e.top, e.bottom, e.left, e.right, e.side});
++  }
 +  paragraph_style.text_align = ToTxtAlign(input.text_align);
 +  paragraph_style.text_direction = ToTxtDirection(input.text_direction);
 +  paragraph_style.max_lines = input.max_lines == 0u
@@ -3472,6 +3479,7 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +      text_style.locale = input.locale;
 +      text_style.letter_spacing = r.letter_spacing;
 +      text_style.word_spacing = r.word_spacing;
++      text_style.venus_no_soft_wrap = r.no_soft_wrap;
 +      // 声明过的行高 (含 CSS `line-height: 0`) 一律覆盖; 段落已打开
 +      // honor_zero_height_override, Skia 不再把倍数 0 当"未设置"。
 +      if (r.height_multiple > 0.0 || r.height_declared) {
@@ -3503,11 +3511,16 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +                    wire::ErrorFieldId::kSemanticsCombination,
 +                    wire::ItemErrorDetail::kParagraphNull);
 +  }
-+  const double layout_width =
-+      (input.soft_wrap && std::isfinite(input.max_width))
-+          ? input.max_width
-+          : std::numeric_limits<double>::infinity();
++  const double layout_width = ((input.soft_wrap || !input.exclusions.empty()) &&
++                               std::isfinite(input.max_width))
++                                  ? input.max_width
++                                  : std::numeric_limits<double>::infinity();
 +  paragraph->Layout(layout_width);
++  if (!input.exclusions.empty() && !std::isfinite(paragraph->GetHeight())) {
++    return FailItem(wire::ItemStatus::kParagraphBuildFailed,
++                    wire::ErrorFieldId::kSemanticsCombination,
++                    wire::ItemErrorDetail::kUnsupportedCombination);
++  }
 +
 +  out_metrics->width = paragraph->GetLongestLine();
 +  out_metrics->height = paragraph->GetHeight();
@@ -3521,6 +3534,7 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +    ParagraphLineOut out_line;
 +    out_line.line_number = static_cast<uint32_t>(lm.line_number);
 +    out_line.left = lm.left;
++    out_line.top = lm.top;
 +    out_line.width = lm.width;
 +    out_line.height = lm.height;
 +    out_line.baseline = lm.baseline;
@@ -3534,8 +3548,8 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +  // 必须先按 LineMetrics 的 UTF-16 区间切 run，再对每行的可见区间取矩形。
 +  // TextBox 不带行号，用它的 y 中点去猜会在高低字号/占位混排时把矩形
 +  // 归到相邻行。GetLineNumberAt 以同一 Paragraph 的文本位置回答，没有
-+  // 几何容差。end_excluding_whitespace 同时在 Paragraph 这个唯一事实源上
-+  // 摘掉行尾可折叠空白，下游不再修改 artifact 的片段矩形。
++  // 几何容差。普通模式用 end_excluding_whitespace 摘掉可折叠行尾空白；
++  // 显式保留模式用 end_index (不含 LF)。两者都来自同一 Paragraph。
 +  const std::vector<txt::Paragraph::TextBox> placeholders =
 +      paragraph->GetRectsForPlaceholders();
 +  for (size_t i = 0; i < spans.size(); ++i) {
@@ -3569,7 +3583,9 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +      for (const txt::LineMetrics& line : lines) {
 +        const size_t slice_begin = std::max(span.begin, line.start_index);
 +        const size_t slice_end =
-+            std::min(span.end, line.end_excluding_whitespace);
++            std::min(span.end, input.runs[i].preserves_whitespace
++                                   ? line.end_index
++                                   : line.end_excluding_whitespace);
 +        if (slice_end <= slice_begin) {
 +          continue;
 +        }
@@ -3608,10 +3624,10 @@ index 0000000000000000000000000000000000000000..3cc2a5b02b715f67fb3c7ce308b1a98e
 +}  // namespace flutter
 diff --git a/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h b/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..ef822911f4ff32d7f54b8c6301bbe77fa0efe261
+index 0000000000000000000000000000000000000000..3b5b87b32d7afc18c9b7adbbc8f3d0bcd022fc34
 --- /dev/null
 +++ b/engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,219 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -3742,6 +3758,8 @@ index 0000000000000000000000000000000000000000..ef822911f4ff32d7f54b8c6301bbe77f
 +  /// 硬换行 (`<br>`)。段落里写一个 U+000A —— **由这里写, 不由调用方混进文本**,
 +  /// 理由见公共头 kFlutterVenusV2RunKindLineBreak 的说明。
 +  bool is_line_break = false;
++  bool preserves_whitespace = false;  ///< Venus fragment ranges only, per run.
++  bool no_soft_wrap = false;  ///< Venus opt-in text range; hard LF is unchanged.
 +  std::u16string text;          ///< is_placeholder 时为空
 +  std::string font_family;      ///< US(0x1f) 分隔的整条链, 与单节点那套同口径
 +  double font_size = 0.0;
@@ -3773,7 +3791,13 @@ index 0000000000000000000000000000000000000000..ef822911f4ff32d7f54b8c6301bbe77f
 +  bool collapse_to_baseline = false;
 +};
 +
++struct FloatExclusionView {
++  double top, bottom, left, right;
++  uint32_t side;
++};
++
 +struct ParagraphInputView {
++  std::vector<FloatExclusionView> exclusions;
 +  std::vector<ParagraphRunView> runs;
 +  std::string locale;
 +  double max_width = 0.0;
@@ -3794,6 +3818,7 @@ index 0000000000000000000000000000000000000000..ef822911f4ff32d7f54b8c6301bbe77f
 +  uint32_t line_number = 0u;
 +  double left = 0.0, width = 0.0, height = 0.0, baseline = 0.0;
 +  double ascent = 0.0, descent = 0.0;
++  double top = 0.0;  ///< 内部实际行顶；profile 的 clearance 不属于行高。
 +};
 +
 +struct ParagraphFragmentOut {
@@ -5447,10 +5472,10 @@ index 0000000000000000000000000000000000000000..eca4de925e7f709e8c3ba51babb8a74a
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc b/engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..b5d1c27033bb65e6c7f5d2b34dc83d5591bdbb86
+index 0000000000000000000000000000000000000000..7e8d876acffc0283ebdedd9dc52f769db9fe1c5b
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc
-@@ -0,0 +1,1337 @@
+@@ -0,0 +1,1500 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -5478,6 +5503,7 @@ index 0000000000000000000000000000000000000000..b5d1c27033bb65e6c7f5d2b34dc83d55
 +#include "flutter/lib/ui/text/venus_text_layout_node_core.h"
 +#include "flutter/lib/ui/text/venus_text_layout_paragraph_store.h"
 +#include "flutter/shell/platform/common/public/flutter_venus_text_layout.h"
++#include "flutter/shell/common/venus_text_layout_registry.h"
 +#include "flutter/testing/testing.h"
 +#include "gtest/gtest.h"
 +#include "txt/asset_font_manager.h"
@@ -5823,6 +5849,168 @@ index 0000000000000000000000000000000000000000..b5d1c27033bb65e6c7f5d2b34dc83d55
 +  const txt::LineMetrics& last_line = lines[last_fragment->line_number];
 +  EXPECT_PRED2(SameBits, last_fragment->right,
 +               last_line.left + last_line.width);
++
++
++  // Uniform-pre capability probe: raw preserved spaces and hard newlines have
++  // geometry in the exact native artifact. Preservation is explicitly enabled.
++  UseRobotoFixture();
++  struct PreservedCase {
++    std::u16string first;
++    std::u16string tail;
++    size_t hard_lines;
++  };
++  for (const PreservedCase& sample : {
++           PreservedCase{u"\u200b  alpha  beta  \nsecond  line  ",
++                         u"tail  words  ", 2u},
++           PreservedCase{u"\u200bA\n  \n", u"B  ", 3u},
++       }) {
++    SCOPED_TRACE(sample.hard_lines);
++    venus_text_layout::ParagraphInputView preserved;
++    preserved.max_width = 1.0e7;  // Existing CSS pre/nowrap width contract.
++    preserved.soft_wrap = true;
++    for (const std::u16string& text : {sample.first, sample.tail}) {
++      venus_text_layout::ParagraphRunView run;
++      run.text = text;
++      run.font_family = "Roboto";
++      run.font_size = 16.0;
++      run.preserves_whitespace = true;
++      preserved.runs.push_back(run);
++    }
++    venus_text_layout::ParagraphMetrics actual;
++    std::unique_ptr<txt::Paragraph> exact;
++    ASSERT_TRUE(venus_text_layout::LayoutParagraphCore(
++                    preserved, CloneForWorker(), false, &actual, &exact)
++                    .ok());
++    ASSERT_NE(exact, nullptr);
++    ASSERT_EQ(exact->GetLineMetrics().size(), sample.hard_lines);
++    ASSERT_EQ(actual.lines.size(), sample.hard_lines);
++
++    // Source ranges stop before literal LF, never at a trimmed metric boundary.
++    size_t offset = 0u;
++    for (size_t run_index = 0u; run_index < preserved.runs.size(); ++run_index) {
++      const std::u16string& text = preserved.runs[run_index].text;
++      size_t begin = 0u;
++      while (begin < text.size()) {
++        const size_t newline = text.find(u'\n', begin);
++        const size_t end = newline == std::u16string::npos ? text.size() : newline;
++        if (end > begin) {
++          const int line = exact->GetLineNumberAt(offset + begin);
++          ASSERT_GE(line, 0);
++          const auto boxes = exact->GetRectsForRange(
++              offset + begin, offset + end,
++              txt::Paragraph::RectHeightStyle::kTight,
++              txt::Paragraph::RectWidthStyle::kTight);
++          ASSERT_EQ(boxes.size(), 1u);
++          ASSERT_GT(boxes.front().rect.fRight, boxes.front().rect.fLeft)
++              << "native artifact must retain spaces, including a space-only line";
++          const auto fragment = std::find_if(
++              actual.fragments.begin(), actual.fragments.end(),
++              [run_index, line](const auto& item) {
++                return item.run_index == run_index &&
++                       item.line_number == static_cast<uint32_t>(line);
++              });
++          EXPECT_NE(fragment, actual.fragments.end())
++              << "preserved-space publication capability";
++          if (fragment != actual.fragments.end()) {
++            EXPECT_DOUBLE_EQ(fragment->left, boxes.front().rect.fLeft);
++            EXPECT_DOUBLE_EQ(fragment->right, boxes.front().rect.fRight);
++            EXPECT_DOUBLE_EQ(fragment->top, boxes.front().rect.fTop);
++            EXPECT_DOUBLE_EQ(fragment->bottom, boxes.front().rect.fBottom);
++          }
++        }
++        if (newline == std::u16string::npos) break;
++        begin = newline + 1u;
++      }
++      offset += text.size();
++    }
++  }
++  for (const double width : {32.0, 1.0e7}) {
++    for (const bool preserve : {false, true}) {
++      SCOPED_TRACE(width);
++      SCOPED_TRACE(preserve);
++      venus_text_layout::ParagraphInputView control;
++      control.max_width = width;
++      venus_text_layout::ParagraphRunView run;
++      run.text = u"A  B  "; run.font_family = "Roboto"; run.font_size = 16.0;
++      run.preserves_whitespace = preserve;
++      control.runs.push_back(run);
++      venus_text_layout::ParagraphMetrics actual;
++      std::unique_ptr<txt::Paragraph> exact;
++      ASSERT_TRUE(venus_text_layout::LayoutParagraphCore(
++                      control, CloneForWorker(), false, &actual, &exact).ok());
++      ASSERT_NE(exact, nullptr);
++      size_t expected_count = 0u;
++      for (const auto& line : exact->GetLineMetrics()) {
++        const size_t end = preserve ? line.end_index : line.end_excluding_whitespace;
++        if (end <= line.start_index) continue;
++        for (const auto& box : exact->GetRectsForRange(
++                 line.start_index, end, txt::Paragraph::RectHeightStyle::kTight,
++                 txt::Paragraph::RectWidthStyle::kTight)) {
++          ASSERT_LT(expected_count, actual.fragments.size());
++          const auto& fragment = actual.fragments[expected_count++];
++          EXPECT_EQ(fragment.line_number, line.line_number);
++          EXPECT_DOUBLE_EQ(fragment.left, box.rect.fLeft);
++          EXPECT_DOUBLE_EQ(fragment.right, box.rect.fRight);
++        }
++      }
++      EXPECT_EQ(actual.fragments.size(), expected_count);
++    }
++  }
++
++  for (const bool preserve_tail : {false, true}) {
++    SCOPED_TRACE(preserve_tail);
++    venus_text_layout::ParagraphInputView mixed;
++    mixed.max_width = 1000.0;
++    venus_text_layout::ParagraphRunView first, tail;
++    first.text = u"A"; tail.text = u"  ";
++    first.font_family = tail.font_family = "Roboto";
++    first.font_size = tail.font_size = 16.0;
++    first.preserves_whitespace = !preserve_tail;
++    tail.preserves_whitespace = preserve_tail;
++    mixed.runs = {first, tail};
++    venus_text_layout::ParagraphMetrics actual;
++    std::unique_ptr<txt::Paragraph> exact;
++    ASSERT_TRUE(venus_text_layout::LayoutParagraphCore(
++                    mixed, CloneForWorker(), false, &actual, &exact).ok());
++    ASSERT_NE(exact, nullptr);
++    const auto boxes = exact->GetRectsForRange(1u, 3u,
++        txt::Paragraph::RectHeightStyle::kTight, txt::Paragraph::RectWidthStyle::kTight);
++    ASSERT_EQ(actual.fragments.size(), preserve_tail ? 1u + boxes.size() : 1u);
++    if (preserve_tail) {
++      ASSERT_FALSE(boxes.empty());
++      EXPECT_EQ(actual.fragments.back().run_index, 1u);
++      EXPECT_DOUBLE_EQ(actual.fragments.back().right, boxes.back().rect.fRight);
++    }
++  }
++  // Literal mode 2 compiles before the optional native capability is implemented.
++  constexpr uint64_t range_engine = 0x5741564534500001ull; const auto range_generation = VenusTextLayoutRegistry::Register(range_engine, fonts_, false);
++  ASSERT_NE(range_generation, 0u); FlutterVenusTextLayoutApiV2 api{};
++  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(range_engine, sizeof(api), &api), kFlutterVenusV2Ok);
++  uint32_t slot = 0; uint64_t lease = 0; ASSERT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);
++  EXPECT_NE(api.capabilities & (1u << 5), 0u);
++  for (int probe = 0; probe != 4; ++probe) {
++    const std::string value = probe == 1 ? "AABB" : probe == 2 ? "  " : "AA  BB"; const bool hard_lf = probe == 3;
++    SCOPED_TRACE(value); FlutterVenusTextLayoutRunV2 runs[3]{};
++    runs[0].struct_size = sizeof(runs[0]); runs[0].kind = kFlutterVenusV2RunKindText;
++    runs[0].text_length = value.size(); runs[0].font_family_length = 6;
++    runs[0].font_weight = 400; runs[0].font_size = 16; runs[0].whitespace_mode = uint16_t(2);
++    if (hard_lf) { runs[0].text_length = 4; runs[1].struct_size = sizeof(runs[1]);
++      runs[1].kind = kFlutterVenusV2RunKindLineBreak; runs[2] = runs[0]; runs[2].text_offset = 4; runs[2].text_length = 2; }
++    FlutterVenusTextLayoutLineMetricV2 lines[16]{}; FlutterVenusTextLayoutFragmentRectV2 rects[16]{};
++    FlutterVenusTextLayoutParagraphInputV2 wire{}; wire.struct_size = sizeof(wire); wire.abi_version = FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2;
++    wire.runs = runs; wire.run_count = hard_lf ? 3 : 1; wire.text = reinterpret_cast<const uint8_t*>(value.data()); wire.text_length = value.size();
++    wire.font_families = reinterpret_cast<const uint8_t*>("Roboto"); wire.font_families_length = 6;
++    wire.text_direction = 1; wire.text_align = 5; wire.soft_wrap = 1; wire.max_width = 1;
++    wire.line_metrics_out = lines; wire.line_metric_capacity = 16; wire.fragment_rects_out = rects; wire.fragment_rect_capacity = 16;
++    FlutterVenusTextLayoutParagraphOutputV2 out{}; out.struct_size = sizeof(out);
++    const auto status = FlutterVenusTextLayoutParagraphV2(range_engine, slot, lease, &wire, &out);
++    EXPECT_EQ(status, kFlutterVenusV2Ok); if (status != kFlutterVenusV2Ok) continue;
++    EXPECT_EQ(out.truncated, 0u); EXPECT_EQ(out.line_metric_count, hard_lf ? 2u : 1u); EXPECT_EQ(out.fragment_rect_count, hard_lf ? 2u : 1u);
++    for (uint32_t n = 0; n < out.fragment_rect_count; ++n) { EXPECT_GT(rects[n].right - rects[n].left, 1); if (hard_lf) EXPECT_NE(rects[n].run_index, 1u); }
++  }
++  EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok); api.release_context(api.context);
++  VenusTextLayoutRegistry::Unregister(range_engine, range_generation);
++
 +}
 +
 +TEST_F(VenusParagraphStoreTest, TrailingLineBreakHasNoPaintFragment) {
@@ -6790,10 +6978,10 @@ index 0000000000000000000000000000000000000000..b5d1c27033bb65e6c7f5d2b34dc83d55
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_registry.cc b/engine/src/flutter/shell/common/venus_text_layout_registry.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a0050a3aa2e
+index 0000000000000000000000000000000000000000..3676e13bdd11fdd6762ad106495f8aec37151739
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_registry.cc
-@@ -0,0 +1,510 @@
+@@ -0,0 +1,524 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -6835,7 +7023,7 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +static_assert(kFlutterVenusV2CapabilitySync == 0x01u);
 +static_assert(kFlutterVenusV2CapabilityItemTiming == 0x04u);
 +static_assert(kFlutterVenusV2CapabilityFontFingerprint == 0x08u);
-+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x0du);
++static_assert(kFlutterVenusV2CapabilityKnownMask == 0x3du);
 +// §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 +// 生产必需集(仍在 KnownMask 内, 是可选能力)。
 +static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
@@ -6886,7 +7074,7 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +// 原 uint32 reserved1 拆成 text_vertical_align + reserved1, 偏移与结构体大小未变。
 +static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align) ==
 +              (kV2Align8 ? 100u : 96u));
-+static_assert(offsetof(FlutterVenusTextLayoutRunV2, reserved1) == (kV2Align8 ? 102u : 98u));
++static_assert(offsetof(FlutterVenusTextLayoutRunV2, whitespace_mode) == (kV2Align8 ? 102u : 98u));
 +static_assert(sizeof(FlutterVenusTextLayoutLineMetricV2) == 56u);
 +static_assert(alignof(FlutterVenusTextLayoutLineMetricV2) == (kV2Align8 ? 8u : 4u));
 +static_assert(offsetof(FlutterVenusTextLayoutLineMetricV2, struct_size) == 0u);
@@ -7138,7 +7326,8 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +    uint32_t slot,
 +    uint64_t lease_token,
 +    const FlutterVenusTextLayoutParagraphInputV2* input,
-+    FlutterVenusTextLayoutParagraphOutputV2* output) {
++    FlutterVenusTextLayoutParagraphOutputV2* output,
++    const VenusParagraphExclusionsV1* exclusions) {
 +  if (output == nullptr) {
 +    return kFlutterVenusV2InvalidArgument;
 +  }
@@ -7168,7 +7357,7 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +    service->Retain();
 +  }
 +  const ScopedServiceReference retained(service);
-+  return service->LayoutParagraph(slot, lease_token, input, output);
++  return service->LayoutParagraph(slot, lease_token, input, output, exclusions);
 +}
 +
 +int32_t VenusTextLayoutRegistry::BeginArtifactOwner(
@@ -7266,6 +7455,19 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +}
 +
 +extern "C" FLUTTER_EXPORT int32_t
++FlutterVenusTextLayoutParagraphWithExclusionsV1(
++    uint64_t engine_id,
++    uint32_t slot,
++    uint64_t lease_token,
++    const FlutterVenusTextLayoutParagraphInputV2* input,
++    const VenusParagraphExclusionsV1* exclusions,
++    FlutterVenusTextLayoutParagraphOutputV2* output) {
++  return flutter::VenusTextLayoutRegistry::LayoutParagraph(
++      engine_id, slot, lease_token, exclusions == nullptr ? nullptr : input,
++      output, exclusions);
++}
++
++extern "C" FLUTTER_EXPORT int32_t
 +FlutterVenusTextLayoutArtifactOwnerBeginV1(
 +    uint64_t engine_id,
 +    uint64_t registration_generation,
@@ -7306,10 +7508,10 @@ index 0000000000000000000000000000000000000000..ca977dc85116b7d9a47233f2cef26a00
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_registry.h b/engine/src/flutter/shell/common/venus_text_layout_registry.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..3c02b9768cb3097bcc8d69cd7ef77f0010e7d1c5
+index 0000000000000000000000000000000000000000..ae3aa0029686f0bb67321902158a4f5d6a882fa6
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_registry.h
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,53 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -7345,7 +7547,8 @@ index 0000000000000000000000000000000000000000..3c02b9768cb3097bcc8d69cd7ef77f00
 +      uint32_t slot,
 +      uint64_t lease_token,
 +      const FlutterVenusTextLayoutParagraphInputV2* input,
-+      FlutterVenusTextLayoutParagraphOutputV2* output);
++      FlutterVenusTextLayoutParagraphOutputV2* output,
++      const VenusParagraphExclusionsV1* exclusions = nullptr);
 +
 +  static int32_t BeginArtifactOwner(uint64_t engine_id,
 +                                    uint64_t registration_generation,
@@ -7364,10 +7567,10 @@ index 0000000000000000000000000000000000000000..3c02b9768cb3097bcc8d69cd7ef77f00
 +#endif  // FLUTTER_SHELL_COMMON_VENUS_TEXT_LAYOUT_REGISTRY_H_
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_service.cc b/engine/src/flutter/shell/common/venus_text_layout_service.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a662f3bba27
+index 0000000000000000000000000000000000000000..01b0e98d70af4a641d3468938d9151d8ef461fa6
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_service.cc
-@@ -0,0 +1,1193 @@
+@@ -0,0 +1,1233 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -7583,7 +7786,7 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +    }
 +    if (run.height_mode >
 +            static_cast<uint16_t>(wire::HeightMode::kMultiplier) ||
-+        run.reserved1 != 0u ||
++        run.whitespace_mode > kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
 +        run.kind > kFlutterVenusV2RunKindLineBreak || run.font_style > 1u ||
 +        run.placeholder_alignment > 6u || run.placeholder_baseline > 1u ||
 +        !std::isfinite(run.font_size) ||
@@ -7620,6 +7823,7 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +        return kFlutterVenusV2InvalidArgument;
 +      }
 +    } else if (run.height_mode != 0u || run.text_vertical_align != 0u ||
++               run.whitespace_mode != kFlutterVenusV2WhitespaceNormal ||
 +               run.text_offset != 0u ||
 +               run.text_length != 0u ||
 +               run.font_family_offset != 0u ||
@@ -7677,7 +7881,9 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +  api->struct_size = static_cast<uint32_t>(sizeof(FlutterVenusTextLayoutApiV2));
 +  api->engine_id = engine_id_;
 +  api->registration_generation = registration_generation_;
-+  api->capabilities = kFlutterVenusV2CapabilityRequired;
++  api->capabilities = kFlutterVenusV2CapabilityRequired |
++                      kFlutterVenusV2CapabilityPreservedWhitespace |
++                      kFlutterVenusV2CapabilityNoSoftWrapRanges;
 +  api->max_slots = kFlutterVenusV2MaxSlots;
 +  // engine_revision was left as the memset zeros, so every consumer that
 +  // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -8303,7 +8509,8 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +    uint32_t slot,
 +    uint64_t token,
 +    const FlutterVenusTextLayoutParagraphInputV2* input,
-+    FlutterVenusTextLayoutParagraphOutputV2* output) {
++    FlutterVenusTextLayoutParagraphOutputV2* output,
++    const VenusParagraphExclusionsV1* exclusions) {
 +  if (output == nullptr) {
 +    return kFlutterVenusV2InvalidArgument;
 +  }
@@ -8318,6 +8525,33 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +  const int32_t validation = ValidateParagraphInput(*input);
 +  if (validation != kFlutterVenusV2Ok) {
 +    return WriteParagraphStatus(output, validation);
++  }
++  // Borrowed wire memory is validated and copied before acquiring a slot.
++  std::vector<venus_text_layout::FloatExclusionView> owned_exclusions;
++  if (exclusions != nullptr) {
++    if (exclusions->struct_size != sizeof(*exclusions) ||
++        exclusions->abi_version != 1u) {
++      return WriteParagraphStatus(output, kFlutterVenusV2AbiMismatch);
++    }
++    if (exclusions->reserved != 0u ||
++        ((exclusions->count == 0u) != (exclusions->exclusions == nullptr))) {
++      return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
++    }
++    for (uint32_t i = 0; i < exclusions->count; ++i) {
++      const auto& e = exclusions->exclusions[i];
++      if (!std::isfinite(e.top) || !std::isfinite(e.bottom) ||
++          !std::isfinite(e.left) || !std::isfinite(e.right) ||
++          e.bottom <= e.top || e.right < e.left || e.reserved != 0u ||
++          (e.side != kVenusFloatExclusionSideLeftV1 &&
++           e.side != kVenusFloatExclusionSideRightV1)) {
++        return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
++      }
++    }
++    owned_exclusions.reserve(exclusions->count);
++    for (uint32_t i = 0; i < exclusions->count; ++i) {
++      const auto& e = exclusions->exclusions[i];
++      owned_exclusions.push_back({e.top, e.bottom, e.left, e.right, e.side});
++    }
 +  }
 +  std::shared_ptr<txt::FontCollection> fonts;
 +  uint64_t layout_font_epoch = 0u;
@@ -8345,6 +8579,7 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +  }
 +
 +  venus_text_layout::ParagraphInputView view;
++  view.exclusions = std::move(owned_exclusions);
 +  view.locale = SliceUtf8(input->locale, input->locale_length, 0u,
 +                          input->locale_length);
 +  view.max_width = input->max_width;
@@ -8371,6 +8606,12 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +    venus_text_layout::ParagraphRunView rv;
 +    rv.is_placeholder = r.kind == kFlutterVenusV2RunKindPlaceholder;
 +    rv.is_line_break = r.kind == kFlutterVenusV2RunKindLineBreak;
++    rv.preserves_whitespace =
++        r.whitespace_mode == kFlutterVenusV2WhitespacePreserve ||
++        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
++    rv.no_soft_wrap =
++        r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
++        (!view.exclusions.empty() && input->soft_wrap == 0u);
 +    if (!rv.is_placeholder && !rv.is_line_break) {
 +      rv.text = Utf8ToUtf16(input->text + r.text_offset, r.text_length);
 +    }
@@ -8459,7 +8700,9 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +            input->paragraph_token, input->max_width, layout_font_epoch,
 +            engine_id_, registration_generation_, /*snapshot_generation=*/0u,
 +            slot, std::move(laid_out), artifact_owner_id,
-+            ParagraphInputChargeBytes(*input));
++            ParagraphInputChargeBytes(*input) +
++                view.exclusions.size() *
++                    sizeof(venus_text_layout::FloatExclusionView));
 +    if (deposit_status != kFlutterVenusV2Ok) {
 +      output->status = deposit_status;
 +    }
@@ -8563,10 +8806,10 @@ index 0000000000000000000000000000000000000000..9a28b37765f0bda95b407fc0b1711a66
 +}  // namespace flutter
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_service.h b/engine/src/flutter/shell/common/venus_text_layout_service.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..a22a9e27e51e6283b3ea5c357f567dee6bd05efd
+index 0000000000000000000000000000000000000000..47a0ff0df4a9b85ea7c0c546e4f2d1e2f742cbf3
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_service.h
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,174 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -8614,10 +8857,12 @@ index 0000000000000000000000000000000000000000..a22a9e27e51e6283b3ea5c357f567dee
 +  ///
 +  /// 是 public 而 LayoutSync 是 private: 后者只经 ApiV2 的函数表被调 (有 Thunk),
 +  /// 而 ApiV2 已冻结加不进新指针, 所以段落走独立导出符号 -> 注册表直接调它。
-+  int32_t LayoutParagraph(uint32_t slot,
-+                          uint64_t token,
-+                          const FlutterVenusTextLayoutParagraphInputV2* input,
-+                          FlutterVenusTextLayoutParagraphOutputV2* output);
++  int32_t LayoutParagraph(
++      uint32_t slot,
++      uint64_t token,
++      const FlutterVenusTextLayoutParagraphInputV2* input,
++      FlutterVenusTextLayoutParagraphOutputV2* output,
++      const VenusParagraphExclusionsV1* exclusions = nullptr);
 +
 +  int32_t BeginArtifactOwner(uint64_t expected_registration_generation,
 +                             uint64_t producer_generation,
@@ -9749,10 +9994,10 @@ index 0000000000000000000000000000000000000000..8d503eae99c5dee5e2b10eeade205605
 +}
 diff --git a/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
 new file mode 100644
-index 0000000000000000000000000000000000000000..0b343edce6a24c6b8b5ebb49899476c09d64519a
+index 0000000000000000000000000000000000000000..9d8e600297a57d578292f18f36709bbc5f9d65b7
 --- /dev/null
 +++ b/engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc
-@@ -0,0 +1,1158 @@
+@@ -0,0 +1,1587 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -9769,14 +10014,18 @@ index 0000000000000000000000000000000000000000..0b343edce6a24c6b8b5ebb49899476c0
 +
 +#include <cmath>
 +#include <cstring>
++#include <limits>
 +#include <string>
 +#include <vector>
 +
++#include "flutter/display_list/dl_builder.h"
 +#include "flutter/fml/icu_util.h"
 +#include "flutter/lib/ui/text/font_collection.h"
 +#include "flutter/lib/ui/text/venus_text_layout_batch_oracle.h"
++#include "flutter/lib/ui/text/venus_text_layout_paragraph_store.h"
 +#include "flutter/shell/common/venus_text_layout_registry.h"
 +#include "flutter/shell/common/venus_text_layout_service.h"
++#include "flutter/txt/src/txt/paragraph.h"
 +#include "gtest/gtest.h"
 +
 +namespace flutter {
@@ -10547,6 +10796,15 @@ index 0000000000000000000000000000000000000000..0b343edce6a24c6b8b5ebb49899476c0
 +       [](ParagraphWire* w) { w->run.text_offset = w->input.text_length; }},
 +      {"input enum", kFlutterVenusV2InvalidArgument,
 +       [](ParagraphWire* w) { w->input.text_direction = 0u; }},
++      {"whitespace mode enum", kFlutterVenusV2InvalidArgument,
++       [](ParagraphWire* w) { w->run.whitespace_mode = 3u; }},
++      {"nontext whitespace mode", kFlutterVenusV2InvalidArgument,
++       [](ParagraphWire* w) {
++         w->run.kind = kFlutterVenusV2RunKindLineBreak;
++         w->run.text_length = 0u;
++         w->run.font_family_length = 0u;
++         w->run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
++       }},
 +      {"run enum", kFlutterVenusV2InvalidArgument,
 +       [](ParagraphWire* w) { w->run.kind = 3u; }},
 +      {"malformed utf8", kFlutterVenusV2InvalidArgument,
@@ -10620,6 +10878,41 @@ index 0000000000000000000000000000000000000000..0b343edce6a24c6b8b5ebb49899476c0
 +  EXPECT_EQ(valid_status, kFlutterVenusV2Ok);
 +  EXPECT_EQ(valid.output.status, valid_status);
 +  EXPECT_EQ(valid.output.truncated, 1u);
++  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityPreservedWhitespace, 0u);
++  valid.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
++  EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
++                kEngineId, slot, lease, &valid.input, &valid.output),
++            kFlutterVenusV2Ok);
++
++  // Adjacent protected runs span a font/color boundary; Normal around them still wraps.
++  ParagraphWire mixed; mixed.text = "AA AA AA XX  YY  ZZ BB BB BB";
++  mixed.input.text = reinterpret_cast<const uint8_t*>(mixed.text.data()); mixed.input.text_length = mixed.text.size();
++  FlutterVenusTextLayoutRunV2 runs[4] = {mixed.run, mixed.run, mixed.run, mixed.run};
++  const uint32_t offsets[] = {0, 9, 13, 19}, lengths[] = {9, 4, 6, 9};
++  for (uint32_t i = 0; i < 4; ++i) { runs[i].text_offset = offsets[i]; runs[i].text_length = lengths[i]; }
++  runs[1].text_color_argb = 0xffff0000; runs[2].text_color_argb = 0xff0000ff; runs[2].font_size = 20;
++  FlutterVenusTextLayoutLineMetricV2 lines[32]{}; FlutterVenusTextLayoutFragmentRectV2 rects[32]{};
++  mixed.input.runs = runs; mixed.input.run_count = 4; mixed.input.max_width = 32;
++  mixed.input.line_metrics_out = lines; mixed.input.line_metric_capacity = 32;
++  mixed.input.fragment_rects_out = rects; mixed.input.fragment_rect_capacity = 32;
++  uint32_t normal_lines = 0;
++  for (const uint16_t mode : {uint16_t(0), uint16_t(2), uint16_t(1), uint16_t(2), uint16_t(0)}) {
++    SCOPED_TRACE(mode); runs[1].whitespace_mode = runs[2].whitespace_mode = mode;
++    const auto status = FlutterVenusTextLayoutParagraphV2(kEngineId, slot, lease, &mixed.input, &mixed.output);
++    EXPECT_EQ(status, kFlutterVenusV2Ok); if (status != kFlutterVenusV2Ok) continue;
++    EXPECT_EQ(mixed.output.truncated, 0u); uint32_t counts[4] = {}; uint32_t protected_line = UINT32_MAX;
++    for (uint32_t i = 0; i < mixed.output.fragment_rect_count; ++i) {
++      ASSERT_LT(rects[i].run_index, 4u); ++counts[rects[i].run_index];
++      if (mode == uint16_t(2) && (rects[i].run_index == 1 || rects[i].run_index == 2)) {
++        if (protected_line == UINT32_MAX) protected_line = rects[i].line_number;
++        EXPECT_EQ(rects[i].line_number, protected_line);
++      }
++    }
++    EXPECT_GT(counts[0], 1u); EXPECT_GT(counts[3], 1u);
++    if (mode == uint16_t(2)) { EXPECT_EQ(counts[1], 1u); EXPECT_EQ(counts[2], 1u); }
++    if (mode == 0) { if (normal_lines == 0) normal_lines = mixed.output.line_metric_count;
++      EXPECT_EQ(mixed.output.line_metric_count, normal_lines); }
++  }
 +
 +  EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
 +  api.release_context(api.context);
@@ -10901,6 +11194,387 @@ index 0000000000000000000000000000000000000000..0b343edce6a24c6b8b5ebb49899476c0
 +  EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
 +  api.release_context(api.context);
 +  VenusTextLayoutRegistry::Unregister(kEngineId, generation);
++}
++
++namespace {
++struct FloatParagraphWire : ParagraphWire {
++  std::vector<FlutterVenusTextLayoutLineMetricV2> lines{128};
++  std::vector<FlutterVenusTextLayoutFragmentRectV2> fragments{128};
++
++  explicit FloatParagraphWire(std::string contents) {
++    text = std::move(contents);
++    run.text_color_argb = 0xff000000u;
++    input.text = reinterpret_cast<const uint8_t*>(text.data());
++    input.text_length = run.text_length = static_cast<uint32_t>(text.size());
++    input.line_metrics_out = lines.data();
++    input.line_metric_capacity = static_cast<uint32_t>(lines.size());
++    input.fragment_rects_out = fragments.data();
++    input.fragment_rect_capacity = static_cast<uint32_t>(fragments.size());
++  }
++};
++
++struct FloatProfileSession {
++  const uint64_t engine;
++  uint64_t generation = 0;
++  FlutterVenusTextLayoutApiV2 api{};
++  uint32_t slot = 0;
++  uint64_t lease = 0;
++  bool valid = false;
++
++  explicit FloatProfileSession(uint64_t id) : engine(id) {
++    generation = VenusTextLayoutRegistry::Register(engine, MakeFonts(), false);
++    if (generation != 0 &&
++        VenusTextLayoutRegistry::GetApi(engine, sizeof(api), &api) ==
++            kFlutterVenusV2Ok) {
++      valid = api.acquire_slot(api.context, &slot, &lease) == kFlutterVenusV2Ok;
++    }
++  }
++  ~FloatProfileSession() {
++    if (lease != 0) {
++      EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
++    }
++    if (api.context != nullptr) {
++      api.release_context(api.context);
++    }
++    VenusTextLayoutRegistry::Unregister(engine, generation);
++  }
++  int32_t Layout(FloatParagraphWire& paragraph,
++                 const VenusParagraphExclusionsV1* profile) {
++    paragraph.output.struct_size = sizeof(paragraph.output);
++    return FlutterVenusTextLayoutParagraphWithExclusionsV1(
++        engine, slot, lease, &paragraph.input, profile, &paragraph.output);
++  }
++};
++
++VenusParagraphExclusionsV1 FloatProfile(
++    const VenusFloatExclusionV1* rects = nullptr,
++    uint32_t count = 0) {
++  return {sizeof(VenusParagraphExclusionsV1), 1u, count, 0u, rects};
++}
++}  // namespace
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1TrustBoundaryAndEmptyParity) {
++  FloatProfileSession session(0x5741564531460001ull);
++  ASSERT_TRUE(session.valid);
++  FloatParagraphWire paragraph(
++      "one two three four five six seven eight nine ten");
++  auto empty = FloatProfile();
++  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(session.engine, session.slot,
++                                              session.lease, &paragraph.input,
++                                              &paragraph.output),
++            kFlutterVenusV2Ok);
++  const auto old_output = paragraph.output;
++  const auto old_lines = paragraph.lines;
++  const auto old_fragments = paragraph.fragments;
++  ASSERT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2Ok);
++  EXPECT_EQ(std::memcmp(&old_output, &paragraph.output, sizeof(old_output)), 0);
++  EXPECT_EQ(std::memcmp(old_lines.data(), paragraph.lines.data(),
++                        old_output.line_metric_count * sizeof(old_lines[0])),
++            0);
++  EXPECT_EQ(
++      std::memcmp(old_fragments.data(), paragraph.fragments.data(),
++                  old_output.fragment_rect_count * sizeof(old_fragments[0])),
++      0);
++  EXPECT_EQ(session.Layout(paragraph, nullptr), kFlutterVenusV2InvalidArgument);
++  VenusFloatExclusionV1 rect{0, 40, 0, 80, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  auto bad = profile;
++  bad.struct_size -= 1;
++  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2AbiMismatch);
++  bad = profile;
++  bad.abi_version = 2;
++  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2AbiMismatch);
++  bad = profile;
++  bad.reserved = 1;
++  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
++  bad = profile;
++  bad.exclusions = nullptr;
++  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
++  bad = profile;
++  bad.count = 0;
++  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
++  const auto valid_rect = rect;
++  for (int field = 0; field < 4; ++field) {
++    rect = valid_rect;
++    double* coordinates[] = {&rect.top, &rect.bottom, &rect.left, &rect.right};
++    *coordinates[field] = std::numeric_limits<double>::infinity();
++    EXPECT_EQ(session.Layout(paragraph, &profile),
++              kFlutterVenusV2InvalidArgument);
++  }
++  rect = valid_rect;
++  rect.top = std::numeric_limits<double>::quiet_NaN();
++  EXPECT_EQ(session.Layout(paragraph, &profile),
++            kFlutterVenusV2InvalidArgument);
++  rect = valid_rect;
++  rect.bottom = rect.top;
++  EXPECT_EQ(session.Layout(paragraph, &profile),
++            kFlutterVenusV2InvalidArgument);
++  rect = valid_rect;
++  rect.right = rect.left - 1;
++  EXPECT_EQ(session.Layout(paragraph, &profile),
++            kFlutterVenusV2InvalidArgument);
++  rect = valid_rect;
++  rect.side = 0;
++  EXPECT_EQ(session.Layout(paragraph, &profile),
++            kFlutterVenusV2InvalidArgument);
++  rect = valid_rect;
++  rect.reserved = 1;
++  EXPECT_EQ(session.Layout(paragraph, &profile),
++            kFlutterVenusV2InvalidArgument);
++  rect = valid_rect;
++  rect.top = -10;  // A float may begin in an earlier paragraph.
++  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++  EXPECT_EQ(paragraph.lines.front().left, 80);
++}
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1RestoresWidthBelowBothFloatSides) {
++  FloatProfileSession session(0x5741564531460002ull);
++  ASSERT_TRUE(session.valid);
++  const std::string text =
++      "one two three four five six seven eight nine ten eleven twelve "
++      "one two three four five six seven eight nine ten eleven twelve";
++  FloatParagraphWire plain(text);
++  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(session.engine, session.slot,
++                                              session.lease, &plain.input,
++                                              &plain.output),
++            kFlutterVenusV2Ok);
++  const double bottom = plain.lines.front().height * 2;
++  for (uint32_t side : {uint32_t(kVenusFloatExclusionSideLeftV1),
++                        uint32_t(kVenusFloatExclusionSideRightV1)}) {
++    SCOPED_TRACE(side);
++    FloatParagraphWire paragraph(text);
++    VenusFloatExclusionV1 rect{
++        0, bottom, side == 1 ? 0.0 : 100.0, side == 1 ? 100.0 : 200.0, side, 0};
++    auto profile = FloatProfile(&rect, 1);
++    ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++    ASSERT_EQ(paragraph.output.truncated, 0u);
++    ASSERT_GT(paragraph.output.line_metric_count, 2u);
++    EXPECT_DOUBLE_EQ(paragraph.lines[0].left, side == 1 ? 100 : 0);
++    EXPECT_LE(paragraph.lines[0].width, 100);
++    bool saw_full_width = false;
++    for (uint32_t i = 2; i < paragraph.output.line_metric_count; ++i) {
++      if (paragraph.lines[i].width > 100) {
++        saw_full_width = true;
++        EXPECT_DOUBLE_EQ(paragraph.lines[i].left, 0);
++      }
++    }
++    EXPECT_TRUE(saw_full_width);
++    // Same text/fonts/full width but a moved band must not reuse old geometry.
++    rect.top = bottom;
++    rect.bottom = bottom * 2;
++    ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++    EXPECT_DOUBLE_EQ(paragraph.lines.front().left, 0);
++    EXPECT_GT(paragraph.lines.front().width, 100);
++  }
++}
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1ActualHeightAndClearance) {
++  FloatProfileSession session(0x5741564531460003ull);
++  ASSERT_TRUE(session.valid);
++  FloatParagraphWire paragraph("x");
++  FlutterVenusTextLayoutRunV2 runs[] = {paragraph.run, {}};
++  runs[1].struct_size = sizeof(runs[1]);
++  runs[1].kind = kFlutterVenusV2RunKindPlaceholder;
++  runs[1].placeholder_width = 30;
++  runs[1].placeholder_height = 70;
++  runs[1].placeholder_baseline_offset = 70;
++  paragraph.input.runs = runs;
++  paragraph.input.run_count = 2;
++  VenusFloatExclusionV1 rect{20, 90, 0, 100, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++  ASSERT_EQ(paragraph.output.line_metric_count, 1u);
++  EXPECT_GE(paragraph.lines.front().height, 70);
++  EXPECT_DOUBLE_EQ(paragraph.lines.front().left, 100);
++
++  // The first unbreakable word fits the full width, but not the one-pixel band.
++  FloatParagraphWire clearance("MMMM");
++  rect = {0, 60, 0, 199, kVenusFloatExclusionSideLeftV1, 0};
++  ASSERT_EQ(session.Layout(clearance, &profile), kFlutterVenusV2Ok);
++  ASSERT_EQ(clearance.output.line_metric_count, 1u);
++  EXPECT_DOUBLE_EQ(clearance.lines.front().left, 0);
++  EXPECT_GE(clearance.lines.front().baseline, 60);
++  EXPECT_DOUBLE_EQ(clearance.output.first_baseline,
++                   clearance.lines.front().baseline);
++}
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1NoWrapKeepsSingleLine) {
++  FloatProfileSession session(0x5741564531460004ull);
++  ASSERT_TRUE(session.valid);
++  FloatParagraphWire paragraph(
++      "one two three four five six seven eight nine ten");
++  paragraph.input.soft_wrap = 0;
++  VenusFloatExclusionV1 rect{0, 50, 0, 100, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++  EXPECT_EQ(paragraph.output.line_metric_count, 1u);
++  EXPECT_GT(paragraph.lines.front().width, paragraph.input.max_width);
++}
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1FiniteDoubleScalarBoundary) {
++  FloatProfileSession session(0x5741564531460006ull);
++  ASSERT_TRUE(session.valid);
++  const double huge = std::numeric_limits<double>::max();
++  ASSERT_TRUE(std::isfinite(huge));
++
++  // Huge coordinates that clip to a representable band remain valid. In
++  // particular, a negative top is not a reason to reject an earlier float.
++  FloatParagraphWire clipped("MMMM");
++  VenusFloatExclusionV1 rect{
++      -huge, 60, -huge, 80, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  ASSERT_EQ(session.Layout(clipped, &profile), kFlutterVenusV2Ok);
++  ASSERT_EQ(clipped.output.line_metric_count, 1u);
++  EXPECT_DOUBLE_EQ(clipped.lines.front().left, 80);
++  EXPECT_TRUE(std::isfinite(clipped.output.height));
++  EXPECT_TRUE(std::isfinite(clipped.lines.front().baseline));
++
++  // A fully blocked line must clear this float. Its finite double bottom cannot
++  // be represented by SkScalar: report a layout failure rather than converting
++  // to inf or silently laying text inside the exclusion at y=0.
++  FloatParagraphWire blocked("MMMM");
++  rect = {0, huge, 0, blocked.input.max_width, kVenusFloatExclusionSideLeftV1,
++          0};
++  EXPECT_EQ(session.Layout(blocked, &profile), kFlutterVenusV2ItemFailed);
++  EXPECT_EQ(blocked.output.status, kFlutterVenusV2ItemFailed);
++  EXPECT_EQ(blocked.output.line_metric_count, 0u);
++  EXPECT_EQ(blocked.output.fragment_rect_count, 0u);
++}
++
++TEST(VenusTextLayoutParityV2, FloatProfileV1TextVerticalAlignAfterClearance) {
++  FloatProfileSession session(0x5741564531460007ull);
++  ASSERT_TRUE(session.valid);
++  struct Laid {
++    int32_t status;
++    FlutterVenusTextLayoutParagraphOutputV2 output;
++    FlutterVenusTextLayoutLineMetricV2 line;
++    FlutterVenusTextLayoutFragmentRectV2 fragments[2];
++  };
++  const auto lay = [&](uint16_t align, double line_height,
++                       const VenusParagraphExclusionsV1* profile) {
++    FloatParagraphWire paragraph("Ab");
++    FlutterVenusTextLayoutRunV2 runs[] = {paragraph.run, paragraph.run};
++    runs[0].text_offset = 0;
++    runs[0].text_length = 1;
++    runs[0].font_size = 40;
++    runs[1].text_offset = 1;
++    runs[1].text_length = 1;
++    runs[1].font_size = 16;
++    runs[1].text_vertical_align = align;
++    if (line_height > 0) {
++      runs[0].height_mode = runs[1].height_mode = 2u;
++      runs[0].height = runs[1].height = line_height;
++    }
++    paragraph.input.runs = runs;
++    paragraph.input.run_count = 2;
++    Laid result{};
++    result.status = profile == nullptr
++                        ? FlutterVenusTextLayoutParagraphV2(
++                              session.engine, session.slot, session.lease,
++                              &paragraph.input, &paragraph.output)
++                        : session.Layout(paragraph, profile);
++    result.output = paragraph.output;
++    result.line = paragraph.lines.front();
++    for (uint32_t i = 0; i < paragraph.output.fragment_rect_count; ++i) {
++      if (paragraph.fragments[i].run_index < 2) {
++        result.fragments[paragraph.fragments[i].run_index] =
++            paragraph.fragments[i];
++      }
++    }
++    return result;
++  };
++  constexpr double clearance = 60;
++  VenusFloatExclusionV1 rect{
++      0, clearance, 0, 199, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  auto empty = FloatProfile();
++  for (uint16_t align : {uint16_t(0), uint16_t(1), uint16_t(3)}) {
++    for (double line_height : {0.0, 1.0}) {
++      SCOPED_TRACE(align);
++      SCOPED_TRACE(line_height);
++      const Laid plain = lay(align, line_height, nullptr);
++      const Laid empty_profile = lay(align, line_height, &empty);
++      ASSERT_EQ(plain.status, kFlutterVenusV2Ok);
++      ASSERT_EQ(empty_profile.status, kFlutterVenusV2Ok);
++      ASSERT_EQ(plain.output.line_metric_count, 1u);
++      ASSERT_EQ(plain.output.fragment_rect_count, 2u);
++      EXPECT_EQ(std::memcmp(&plain.output, &empty_profile.output,
++                            sizeof(plain.output)),
++                0);
++      EXPECT_EQ(
++          std::memcmp(&plain.line, &empty_profile.line, sizeof(plain.line)), 0);
++      EXPECT_EQ(std::memcmp(plain.fragments, empty_profile.fragments,
++                            sizeof(plain.fragments)),
++                0);
++
++      // Clearing an unbreakable word only translates its native line origin.
++      // top/bottom alignment and authored line-height stay local to that line.
++      const Laid cleared = lay(align, line_height, &profile);
++      ASSERT_EQ(cleared.status, kFlutterVenusV2Ok);
++      ASSERT_EQ(cleared.output.line_metric_count, 1u);
++      ASSERT_EQ(cleared.output.fragment_rect_count, 2u);
++      EXPECT_DOUBLE_EQ(cleared.line.left, plain.line.left);
++      EXPECT_DOUBLE_EQ(cleared.line.width, plain.line.width);
++      EXPECT_DOUBLE_EQ(cleared.line.height, plain.line.height);
++      EXPECT_NEAR(cleared.line.baseline, plain.line.baseline + clearance, 0.01);
++      EXPECT_NEAR(cleared.output.first_baseline,
++                  plain.output.first_baseline + clearance, 0.01);
++      EXPECT_NEAR(cleared.output.height, plain.output.height + clearance, 0.01);
++      for (size_t i = 0; i < 2; ++i) {
++        EXPECT_DOUBLE_EQ(cleared.fragments[i].left, plain.fragments[i].left);
++        EXPECT_DOUBLE_EQ(cleared.fragments[i].right, plain.fragments[i].right);
++        EXPECT_NEAR(cleared.fragments[i].top,
++                    plain.fragments[i].top + clearance, 0.01);
++        EXPECT_NEAR(cleared.fragments[i].bottom,
++                    plain.fragments[i].bottom + clearance, 0.01);
++      }
++    }
++  }
++}
++
++TEST(VenusTextLayoutParityV2,
++     FloatProfileV1ClaimOwnsGeometryForRelayoutPaintAndHit) {
++  FloatProfileSession session(0x5741564531460005ull);
++  ASSERT_TRUE(session.valid);
++  FloatParagraphWire paragraph("MMMM");
++  paragraph.input.paragraph_token = 0x5741564531461005ull;
++  VenusFloatExclusionV1 rect{0, 80, 0, 80, kVenusFloatExclusionSideLeftV1, 0};
++  auto profile = FloatProfile(&rect, 1);
++  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
++  FlutterVenusTextLayoutCountersV2 counters{};
++  ASSERT_EQ(session.api.get_counters_v2(session.api.context, sizeof(counters),
++                                        &counters),
++            kFlutterVenusV2Ok);
++  ASSERT_EQ(session.api.release_slot(session.api.context, session.slot,
++                                     session.lease),
++            kFlutterVenusV2Ok);
++  session.lease = 0;
++  // Borrowed geometry is invalid immediately after return; claim must retain a
++  // copy.
++  rect = {0, 0, 0, 0, 0, 0};
++  auto claimed = venus_text_layout::ParagraphStore::Instance().Claim(
++      paragraph.input.paragraph_token, paragraph.input.max_width,
++      counters.font_epoch);
++  ASSERT_NE(claimed, nullptr);
++  ASSERT_EQ(claimed->GetLineMetrics().size(), 1u);
++  EXPECT_DOUBLE_EQ(claimed->GetLineMetrics().front().left, 80);
++  claimed->Layout(320);
++  const auto& line = claimed->GetLineMetrics().front();
++  EXPECT_DOUBLE_EQ(line.left, 80);
++  const auto boxes =
++      claimed->GetRectsForRange(0, 1, txt::Paragraph::RectHeightStyle::kTight,
++                                txt::Paragraph::RectWidthStyle::kTight);
++  ASSERT_FALSE(boxes.empty());
++  EXPECT_GE(boxes.front().rect.left(), 80);
++  EXPECT_EQ(
++      claimed->GetGlyphPositionAtCoordinate(81, line.baseline / 2).position,
++      0u);
++  DisplayListBuilder builder;
++  EXPECT_TRUE(claimed->Paint(&builder, 0, 0));
++  const auto painted = builder.Build();
++  ASSERT_NE(painted, nullptr);
++  EXPECT_GT(painted->op_count(), 0u);
++  EXPECT_GT(painted->GetBounds().GetLeft(), 50);
 +}
 +
 +}  // namespace testing
@@ -11637,10 +12311,10 @@ index 67d9d16727c5bd8921fc72386bdd6433dcbf62c9..6e5ecc7d564b85a1a89ca6b1e9aa5b79
  # Any files that are built by clients (client_wrapper code, library headers for
 diff --git a/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h b/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..0218c3e067fc3001c8bc42962b65ae53511da179
+index 0000000000000000000000000000000000000000..b3fc40de416470c6c0aa1ad319e4185e2c925b85
 --- /dev/null
 +++ b/engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h
-@@ -0,0 +1,540 @@
+@@ -0,0 +1,592 @@
 +// Copyright 2013 The Flutter Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -11719,7 +12393,9 @@ index 0000000000000000000000000000000000000000..0218c3e067fc3001c8bc42962b65ae53
 +  kFlutterVenusV2CapabilitySync            = 1u << 0,
 +  kFlutterVenusV2CapabilityItemTiming      = 1u << 2,
 +  kFlutterVenusV2CapabilityFontFingerprint = 1u << 3,
-+  kFlutterVenusV2CapabilityKnownMask       = 0x0du,
++  kFlutterVenusV2CapabilityPreservedWhitespace = 1u << 4,
++  kFlutterVenusV2CapabilityNoSoftWrapRanges = 1u << 5,
++  kFlutterVenusV2CapabilityKnownMask       = 0x3du,
 +  // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
 +  // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
 +  // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -12012,6 +12688,16 @@ index 0000000000000000000000000000000000000000..0218c3e067fc3001c8bc42962b65ae53
 +  kFlutterVenusV2RunKindLineBreak   = 2,
 +} FlutterVenusTextLayoutRunKindV2;
 +
++// Venus-only per-run mode; default 0 retains ordinary widget behavior.
++// Preserve changes fragment ranges only. PreserveNoSoftWrap also disables soft
++// and emergency breaks inside contiguous opted-in text ranges; hard LF remains.
++// Mode 2 requires the optional NoSoftWrapRanges capability; RunV2 ABI is unchanged.
++typedef enum FlutterVenusTextLayoutWhitespaceModeV2 {
++  kFlutterVenusV2WhitespaceNormal = 0,
++  kFlutterVenusV2WhitespacePreserve = 1,
++  kFlutterVenusV2WhitespacePreserveNoSoftWrap = 2,
++} FlutterVenusTextLayoutWhitespaceModeV2;
++
 +typedef struct FlutterVenusTextLayoutRunV2 {
 +  uint32_t struct_size;
 +  uint32_t kind;  ///< FlutterVenusTextLayoutRunKindV2
@@ -12049,7 +12735,7 @@ index 0000000000000000000000000000000000000000..0218c3e067fc3001c8bc42962b65ae53
 +  /// 口径同 `placeholder_alignment`, 只收 0=baseline / 1=top / 3=bottom
 +  /// (对齐**行盒**上/下沿, CSS 2.1 §10.8.1); 其余值与非文本 run 上的非 0 均为非法参数。
 +  uint16_t text_vertical_align;
-+  uint16_t reserved1;  ///< 必须为 0
++  uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
 +} FlutterVenusTextLayoutRunV2;
 +
 +typedef struct FlutterVenusTextLayoutLineMetricV2 {
@@ -12145,6 +12831,46 @@ index 0000000000000000000000000000000000000000..0218c3e067fc3001c8bc42962b65ae53
 +    const FlutterVenusTextLayoutParagraphInputV2* input,
 +    FlutterVenusTextLayoutParagraphOutputV2* output);
 +
++/// Venus-only float profile. Existing ParagraphV2 ABI and default behavior are
++/// unchanged; the new symbol is optional and callers must probe it separately.
++typedef enum VenusFloatExclusionSideV1 {
++  kVenusFloatExclusionSideLeftV1 = 1,
++  kVenusFloatExclusionSideRightV1 = 2,
++} VenusFloatExclusionSideV1;
++
++/// An occupied float rectangle in Paragraph-local CSS coordinates. top may be
++/// negative for a float starting before the Paragraph. All coordinates must be
++/// finite, bottom > top, and right >= left. side is VenusFloatExclusionSideV1.
++typedef struct VenusFloatExclusionV1 {
++  double top;
++  double bottom;
++  double left;
++  double right;
++  uint32_t side;
++  uint32_t reserved;  ///< 0
++} VenusFloatExclusionV1;
++
++typedef struct VenusParagraphExclusionsV1 {
++  uint32_t struct_size;
++  uint32_t abi_version;  ///< 1
++  uint32_t count;
++  uint32_t reserved;  ///< 0
++  const VenusFloatExclusionV1* exclusions;
++} VenusParagraphExclusionsV1;
++
++/// The profile and its array are borrowed only for this synchronous call. The
++/// engine must copy them before retaining a Paragraph artifact. Empty profiles
++/// use the existing ParagraphV2 path; nonempty profiles require this symbol and
++/// must fail closed when it is unavailable. input.max_width is the full content
++/// width; exclusion line origins are shared by metrics, paint, and hit testing.
++FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithExclusionsV1(
++    uint64_t engine_id,
++    uint32_t slot,
++    uint64_t lease_token,
++    const FlutterVenusTextLayoutParagraphInputV2* input,
++    const VenusParagraphExclusionsV1* exclusions,
++    FlutterVenusTextLayoutParagraphOutputV2* output);
++
 +/* Version-scoped ownership for prelaid Paragraph artifacts. Begin must happen
 +   before the first owned deposit. Bind attaches an acquired slot lease to the
 +   owner; Seal succeeds only after every bound lease has been returned. Claim
@@ -12194,7 +12920,7 @@ index 125ea5bb94377687a2a215a3e76a06da39651d5c..22ed8b96f59faa06670ecc06f9921ecc
    "framework/Headers/FlutterAppDelegate.h",
    "framework/Headers/FlutterCallbackCache.h",
 diff --git a/engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc b/engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc
-index c611b5bd00796200b7edd6cc1ab438b0ac0d1c14..34555abc10b28c030b9b297d7445953eefdc5c57 100644
+index c611b5bd00796200b7edd6cc1ab438b0ac0d1c14..92e177de480f87b7b8e8b1aa1c7cc6d02ce1fc78 100644
 --- a/engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc
 +++ b/engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc
 @@ -103,6 +103,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
@@ -12205,15 +12931,27 @@ index c611b5bd00796200b7edd6cc1ab438b0ac0d1c14..34555abc10b28c030b9b297d7445953e
    text_style.setFontFamilies({SkString(txt.font_family.c_str())});
    text_style.setLocale(SkString(txt.locale.c_str()));
    SkFontArguments::VariationPosition::Coordinate weight_coord{
-@@ -139,6 +140,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
+@@ -139,6 +140,15 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
    skia.turnHintingOff();
    skia.setReplaceTabCharacters(true);
    skia.setApplyRoundingHack(false);
 +  skia.setHonorZeroHeightOverride(txt.honor_zero_height_override);
++  if (!txt.venus_float_exclusions.empty()) {
++    std::vector<skt::VenusFloatExclusion> exclusions;
++    exclusions.reserve(txt.venus_float_exclusions.size());
++    for (const auto& e : txt.venus_float_exclusions) {
++      exclusions.push_back({e.top, e.bottom, e.left, e.right, e.side});
++    }
++    skia.setVenusFloatExclusions(std::move(exclusions));
++  }
  
    return skia;
  }
-@@ -168,6 +170,7 @@ skt::TextStyle ParagraphBuilderSkia::TxtToSkia(const TextStyle& txt) {
+@@ -165,9 +175,11 @@ skt::TextStyle ParagraphBuilderSkia::TxtToSkia(const TextStyle& txt) {
+   skia.setFontSize(SkDoubleToScalar(txt.font_size));
+   skia.setLetterSpacing(SkDoubleToScalar(txt.letter_spacing));
+   skia.setWordSpacing(SkDoubleToScalar(txt.word_spacing));
++  skia.setVenusNoSoftWrap(txt.venus_no_soft_wrap);
    skia.setHeight(SkDoubleToScalar(txt.height));
    skia.setHeightOverride(txt.has_height_override);
    skia.setHalfLeading(txt.half_leading);
@@ -12221,6 +12959,18 @@ index c611b5bd00796200b7edd6cc1ab438b0ac0d1c14..34555abc10b28c030b9b297d7445953e
  
    skia.setLocale(SkString(txt.locale.c_str()));
    if (txt.background.has_value()) {
+diff --git a/engine/src/flutter/txt/src/skia/paragraph_skia.cc b/engine/src/flutter/txt/src/skia/paragraph_skia.cc
+index 9c9401ae9cfc098a6c6af96965b3b74853ed113f..543ddaf9d8be3da6a08df561fd65b85fd7542cde 100644
+--- a/engine/src/flutter/txt/src/skia/paragraph_skia.cc
++++ b/engine/src/flutter/txt/src/skia/paragraph_skia.cc
+@@ -245,6 +245,7 @@ std::vector<LineMetrics>& ParagraphSkia::GetLineMetrics() {
+       txtm.height = skm.fHeight;
+       txtm.width = skm.fWidth;
+       txtm.left = skm.fLeft;
++      txtm.top = skm.fTop;
+       txtm.baseline = skm.fBaseline;
+       txtm.line_number = skm.fLineNumber;
+ 
 diff --git a/engine/src/flutter/txt/src/txt/font_collection.cc b/engine/src/flutter/txt/src/txt/font_collection.cc
 index 665ca01f0c8eabb13a74fa5272cd69d38daa0568..d4c876f41eb375993087386f13a4cbe49e93f47f 100644
 --- a/engine/src/flutter/txt/src/txt/font_collection.cc
@@ -12410,6 +13160,19 @@ index 6727723cf3161070054080d7fa3386b9ce5ce08a..0d7c0b6d9d700527635092bea95f99bf
  
    // An equivalent font collection usable by the Skia text shaper library.
    sk_sp<skia::textlayout::FontCollection> skt_collection_;
+diff --git a/engine/src/flutter/txt/src/txt/line_metrics.h b/engine/src/flutter/txt/src/txt/line_metrics.h
+index 05984c6e08ef4e82c14180fc9c310a90bcbee277..839f841e83a8d52322040bbe7fcf0015ca1c44a7 100644
+--- a/engine/src/flutter/txt/src/txt/line_metrics.h
++++ b/engine/src/flutter/txt/src/txt/line_metrics.h
+@@ -45,6 +45,8 @@ class LineMetrics {
+   // The left edge of the line. The right edge can be obtained with `left +
+   // width`
+   double left = 0.0;
++  // Actual line-box origin, including any float clearance gap.
++  double top = 0.0;
+   // The y position of the baseline for this line from the top of the paragraph.
+   double baseline = 0.0;
+   // Zero indexed line number.
 diff --git a/engine/src/flutter/txt/src/txt/paragraph_style.cc b/engine/src/flutter/txt/src/txt/paragraph_style.cc
 index 54fc7a326a995157c672f9a4f0ca53b81d2eb97f..ca1378fa00bbffc7daf00e323c291eef19597fb2 100644
 --- a/engine/src/flutter/txt/src/txt/paragraph_style.cc
@@ -12423,10 +13186,37 @@ index 54fc7a326a995157c672f9a4f0ca53b81d2eb97f..ca1378fa00bbffc7daf00e323c291eef
  }
  
 diff --git a/engine/src/flutter/txt/src/txt/paragraph_style.h b/engine/src/flutter/txt/src/txt/paragraph_style.h
-index ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9..77b44301b9b48c3fd350c6c6989cec4617585198 100644
+index ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9..4a47737eb2fe8bdc53f20c8a3bcb02339e2ac6b7 100644
 --- a/engine/src/flutter/txt/src/txt/paragraph_style.h
 +++ b/engine/src/flutter/txt/src/txt/paragraph_style.h
-@@ -63,6 +63,7 @@ class ParagraphStyle {
+@@ -6,7 +6,9 @@
+ #define FLUTTER_TXT_SRC_TXT_PARAGRAPH_STYLE_H_
+ 
+ #include <climits>
++#include <cstdint>
+ #include <string>
++#include <vector>
+ 
+ #include "font_style.h"
+ #include "font_weight.h"
+@@ -53,8 +55,16 @@ enum TextHeightBehavior {
+   kDisableAll = 0x1 | 0x2,
+ };
+ 
++struct FloatExclusion {
++  double top, bottom, left, right;
++  uint32_t side;
++};
++
+ class ParagraphStyle {
+  public:
++  // Empty by default: ordinary Flutter paragraphs retain their original path.
++  std::vector<FloatExclusion> venus_float_exclusions;
++
+   // Default TextStyle. Used in GetTextStyle() to obtain the base TextStyle to
+   // inherit off of.
+   int font_weight = FontWeight::normal;
+@@ -63,6 +73,7 @@ class ParagraphStyle {
    double font_size = 14;
    double height = 1;
    bool has_height_override = false;
@@ -12434,7 +13224,7 @@ index ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9..77b44301b9b48c3fd350c6c6989cec46
    size_t text_height_behavior = TextHeightBehavior::kAll;
  
    // Strut properties. strut_enabled must be set to true for the rest of the
-@@ -80,6 +81,11 @@ class ParagraphStyle {
+@@ -80,6 +91,11 @@ class ParagraphStyle {
                                // to use custom leading as a ratio of font size.
    bool force_strut_height = false;
  
@@ -12447,10 +13237,20 @@ index ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9..77b44301b9b48c3fd350c6c6989cec46
    TextAlign text_align = TextAlign::start;
    TextDirection text_direction = TextDirection::ltr;
 diff --git a/engine/src/flutter/txt/src/txt/text_style.cc b/engine/src/flutter/txt/src/txt/text_style.cc
-index 1ca829923970bed75bd1f66940e07704694fae17..b17297d6e8170fbc405e4b5e6c5c9307b7ca15c2 100644
+index 1ca829923970bed75bd1f66940e07704694fae17..702ed3c00e8c8c203c93ec51d0934a4f7d8fc17b 100644
 --- a/engine/src/flutter/txt/src/txt/text_style.cc
 +++ b/engine/src/flutter/txt/src/txt/text_style.cc
-@@ -51,6 +51,9 @@ bool TextStyle::equals(const TextStyle& other) const {
+@@ -42,6 +42,9 @@ bool TextStyle::equals(const TextStyle& other) const {
+   if (word_spacing != other.word_spacing) {
+     return false;
+   }
++  if (venus_no_soft_wrap != other.venus_no_soft_wrap) {
++    return false;
++  }
+   if (height != other.height) {
+     return false;
+   }
+@@ -51,6 +54,9 @@ bool TextStyle::equals(const TextStyle& other) const {
    if (half_leading != other.half_leading) {
      return false;
    }
@@ -12461,11 +13261,15 @@ index 1ca829923970bed75bd1f66940e07704694fae17..b17297d6e8170fbc405e4b5e6c5c9307
      return false;
    }
 diff --git a/engine/src/flutter/txt/src/txt/text_style.h b/engine/src/flutter/txt/src/txt/text_style.h
-index a2a4a2cc40324ae3cae612fd050aacd682c4bae6..c54e87b9562cf083e160b2f2a07cc497c0020c67 100644
+index a2a4a2cc40324ae3cae612fd050aacd682c4bae6..e7b71ddb83b0b1b01034174b999cdd6e11e9fa35 100644
 --- a/engine/src/flutter/txt/src/txt/text_style.h
 +++ b/engine/src/flutter/txt/src/txt/text_style.h
-@@ -43,6 +43,9 @@ class TextStyle {
+@@ -41,8 +41,13 @@ class TextStyle {
+   double font_size = 14.0;
+   double letter_spacing = 0.0;
    double word_spacing = 0.0;
++  // Venus-only range policy. Ordinary Flutter TextStyle keeps the default.
++  bool venus_no_soft_wrap = false;
    double height = 1.0;
    bool has_height_override = false;
 +  // Vertical offset of this run from the line baseline (logical pixels, down
