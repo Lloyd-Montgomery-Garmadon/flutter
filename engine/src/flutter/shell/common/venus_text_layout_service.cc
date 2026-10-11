@@ -225,9 +225,9 @@ int32_t ValidateParagraphInput(
       return kFlutterVenusV2InvalidArgument;
     }
     if (run.kind == kFlutterVenusV2RunKindText) {
-      // 文本 run 只收 baseline / top / bottom (对齐行盒); middle 等档位没有实现。
+      // length 复用既有 baseline shift; top / bottom 仍对齐行盒。
       if (run.text_vertical_align != 0u && run.text_vertical_align != 1u &&
-          run.text_vertical_align != 3u) {
+          run.text_vertical_align != 3u && run.text_vertical_align != 6u) {
         return kFlutterVenusV2InvalidArgument;
       }
       if (!Utf8RangeFits(input.text, input.text_length, run.text_offset,
@@ -255,6 +255,15 @@ int32_t ValidateParagraphInput(
                run.text_length != 0u ||
                run.font_family_offset != 0u ||
                run.font_family_length != 0u) {
+      return kFlutterVenusV2InvalidArgument;
+    }
+    uint64_t length_bits = 0u;
+    std::memcpy(&length_bits, &run.text_vertical_align_length,
+                sizeof(length_bits));
+    const bool active_length = run.kind == kFlutterVenusV2RunKindText &&
+                               run.text_vertical_align == 6u;
+    if (active_length ? !std::isfinite(run.text_vertical_align_length)
+                      : length_bits != 0u) {
       return kFlutterVenusV2InvalidArgument;
     }
   }
@@ -310,7 +319,8 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
   api->registration_generation = registration_generation_;
   api->capabilities = kFlutterVenusV2CapabilityRequired |
                       kFlutterVenusV2CapabilityPreservedWhitespace |
-                      kFlutterVenusV2CapabilityNoSoftWrapRanges;
+                      kFlutterVenusV2CapabilityNoSoftWrapRanges |
+                      kFlutterVenusV2CapabilityTextVerticalAlignLength;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
   // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -1057,7 +1067,11 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     rv.placeholder_height = r.placeholder_height;
     rv.placeholder_baseline_offset = r.placeholder_baseline_offset;
     rv.placeholder_alignment = r.placeholder_alignment;
-    rv.text_vertical_align = r.text_vertical_align;
+    rv.text_vertical_align = r.text_vertical_align == 6u ? 0u
+                                                       : r.text_vertical_align;
+    rv.baseline_shift = r.text_vertical_align == 6u
+                            ? -r.text_vertical_align_length
+                            : 0.0;
     view.runs.push_back(std::move(rv));
   }
 

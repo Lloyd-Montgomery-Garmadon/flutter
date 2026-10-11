@@ -776,6 +776,8 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
       VenusTextLayoutRegistry::Register(kEngineId, fonts, false);
   ASSERT_NE(generation, 0u);
   FlutterVenusTextLayoutApiV2 api{};
+  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api) - 1u, &api),
+            kFlutterVenusV2AbiMismatch);
   ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
             kFlutterVenusV2Ok);
   uint32_t slot = 0u;
@@ -891,6 +893,61 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
     EXPECT_EQ(wire.output.line_metric_count, 0u) << rejection.name;
   }
 
+  // Exact RunV2 shape is required before reading its tail or advancing the stride.
+  for (const uint32_t wrong_size : {uint32_t(sizeof(base.run) - 8u),
+                                    uint32_t(sizeof(base.run) + 8u)}) {
+    for (const uint32_t count : {1u, 2u}) {
+      ParagraphWire wire;
+      FlutterVenusTextLayoutRunV2 runs[2] = {wire.run, wire.run};
+      runs[0].struct_size = wrong_size;
+      wire.input.runs = runs;
+      wire.input.run_count = count;
+      EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
+                    kEngineId, slot, lease, &wire.input, &wire.output),
+                kFlutterVenusV2AbiMismatch);
+    }
+  }
+  // An actual old-stride allocation contains no new scalar tail for run zero.
+  alignas(FlutterVenusTextLayoutRunV2) uint8_t old_runs[2 * (sizeof(base.run) - 8u)]{};
+  const uint32_t old_size = sizeof(base.run) - 8u;
+  std::memcpy(old_runs, &old_size, sizeof(old_size));
+  ParagraphWire old_wire;
+  old_wire.input.runs = reinterpret_cast<const FlutterVenusTextLayoutRunV2*>(old_runs);
+  old_wire.input.run_count = 2u;
+  EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
+                kEngineId, slot, lease, &old_wire.input, &old_wire.output),
+            kFlutterVenusV2AbiMismatch);
+
+  const double invalid_lengths[] = {1.0, -0.0, std::nan(""),
+                                    std::numeric_limits<double>::infinity(),
+                                    -std::numeric_limits<double>::infinity()};
+  for (const uint16_t kind : {uint16_t(kFlutterVenusV2RunKindText),
+                             uint16_t(kFlutterVenusV2RunKindPlaceholder),
+                             uint16_t(kFlutterVenusV2RunKindLineBreak)}) {
+    for (const double length : invalid_lengths) {
+      ParagraphWire wire;
+      wire.run.kind = kind;
+      if (kind != kFlutterVenusV2RunKindText) {
+        wire.run.text_offset = wire.run.text_length = 0u;
+        wire.run.font_family_offset = wire.run.font_family_length = 0u;
+      }
+      wire.run.text_vertical_align_length = length;
+      EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
+                    kEngineId, slot, lease, &wire.input, &wire.output),
+                kFlutterVenusV2InvalidArgument);
+    }
+  }
+  for (const double length : {std::nan(""),
+                              std::numeric_limits<double>::infinity(),
+                              -std::numeric_limits<double>::infinity()}) {
+    ParagraphWire wire;
+    wire.run.text_vertical_align = 6u;
+    wire.run.text_vertical_align_length = length;
+    EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
+                  kEngineId, slot, lease, &wire.input, &wire.output),
+              kFlutterVenusV2InvalidArgument);
+  }
+
   ParagraphWire valid;
   valid.input.paragraph_token = 0u;
   valid.input.line_metric_capacity = 0u;
@@ -903,6 +960,7 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
   EXPECT_EQ(valid.output.status, valid_status);
   EXPECT_EQ(valid.output.truncated, 1u);
   EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityPreservedWhitespace, 0u);
+  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityTextVerticalAlignLength, 0u);
   valid.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
   EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
                 kEngineId, slot, lease, &valid.input, &valid.output),
@@ -1115,7 +1173,8 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   // line_height > 0: 两个 run 都声明行高倍数 (CSS `line-height: <number>`, height_mode=Multiplier)。
   const auto lay = [&](double size0, double size1, uint16_t align1,
                        const std::string& text1 = "b",
-                       double max_width = 200.0, double line_height = 0.0) {
+                       double max_width = 200.0, double line_height = 0.0,
+                       double length = 0.0) {
     ParagraphWire w;
     const bool two = size0 > 0.0;
     w.text = (two ? std::string("A") : std::string()) + text1;
@@ -1128,6 +1187,7 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
     r1.text_length = static_cast<uint32_t>(text1.size());
     r1.font_size = size1;
     r1.text_vertical_align = align1;
+    r1.text_vertical_align_length = length;
     if (line_height > 0.0) {
       r0.height_mode = r1.height_mode = 2u;
       r0.height = r1.height = line_height;
@@ -1170,6 +1230,15 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   EXPECT_NEAR(bottom.second.bottom, bottom.line.height, 0.5)
       << "bottom: 小字盒底贴行盒下沿";
   EXPECT_DOUBLE_EQ(bottom.line.height, base.line.height);
+
+  for (const double length : {-1.0, 0.0, 1.0}) {
+    const Laid shifted = lay(40.0, 16.0, 6u, "b", 200.0, 0.0, length);
+    ASSERT_EQ(shifted.status, kFlutterVenusV2Ok);
+    EXPECT_NEAR(shifted.second.top, base.second.top - length, 0.0001);
+    EXPECT_NEAR(shifted.second.bottom, base.second.bottom - length, 0.0001);
+    EXPECT_DOUBLE_EQ(shifted.first.top, base.first.top);
+    EXPECT_DOUBLE_EQ(shifted.line.height, base.line.height);
+  }
 
   // top 盒比其余内容高: 行盒向下长, 其余内容 (基线组) 留在行顶。
   const Laid tall_base = lay(16.0, 40.0, 0u);

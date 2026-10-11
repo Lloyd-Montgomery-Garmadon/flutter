@@ -78,7 +78,8 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityFontFingerprint = 1u << 3,
   kFlutterVenusV2CapabilityPreservedWhitespace = 1u << 4,
   kFlutterVenusV2CapabilityNoSoftWrapRanges = 1u << 5,
-  kFlutterVenusV2CapabilityKnownMask       = 0x3du,
+  kFlutterVenusV2CapabilityTextVerticalAlignLength = 1u << 6,
+  kFlutterVenusV2CapabilityKnownMask       = 0x7du,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -415,10 +416,13 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   uint16_t placeholder_baseline;
   /// 原 `uint32_t reserved1` 的前半 (偏移 100, 宽 2; 与 reserved0 -> height_mode 同一处置)。
   /// kind=Text 专用: 摊成这个 run 的**非替换 inline 包装盒**的 CSS vertical-align,
-  /// 口径同 `placeholder_alignment`, 只收 0=baseline / 1=top / 3=bottom
-  /// (对齐**行盒**上/下沿, CSS 2.1 §10.8.1); 其余值与非文本 run 上的非 0 均为非法参数。
+  /// 0=baseline / 1=top / 3=bottom (对齐行盒) / 6=length (有符号 CSS px)。
+  /// 其余值与非文本 run 上的非 0 均为非法参数。
   uint16_t text_vertical_align;
   uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
+  /// 仅 Text + text_vertical_align=6 活动: 有限有符号 CSS px, 正值抬高基线。
+  /// 其余状态必须逐位为正零。新旧 RunV2 shape 必须精确拒绝并配套部署。
+  double text_vertical_align_length;
 } FlutterVenusTextLayoutRunV2;
 
 typedef struct FlutterVenusTextLayoutLineMetricV2 {

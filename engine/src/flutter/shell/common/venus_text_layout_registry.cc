@@ -39,7 +39,8 @@ static_assert(alignof(V2ScalarAlignmentProbe) == 4u ||
 static_assert(kFlutterVenusV2CapabilitySync == 0x01u);
 static_assert(kFlutterVenusV2CapabilityItemTiming == 0x04u);
 static_assert(kFlutterVenusV2CapabilityFontFingerprint == 0x08u);
-static_assert(kFlutterVenusV2CapabilityKnownMask == 0x3du);
+static_assert(kFlutterVenusV2CapabilityTextVerticalAlignLength == 0x40u);
+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x7du);
 // §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 // 生产必需集(仍在 KnownMask 内, 是可选能力)。
 static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
@@ -62,7 +63,7 @@ static_assert(offsetof(FlutterVenusTextLayoutOutputV2, content_height) == 136u);
 // 2026-08-28: 段落入口 (一个 IFC 一次排完) 的四张新表。**独立结构体**, 与上面
 // 那套单节点的表零重叠 —— 理由见公共头里的说明 (ApiV2 已冻结, 且两者语义不同)。
 // 与引擎那棵树逐条相同, 两边同帧改。
-static_assert(sizeof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 104u : 100u));
+static_assert(sizeof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 112u : 108u));
 static_assert(alignof(FlutterVenusTextLayoutRunV2) == (kV2Align8 ? 8u : 4u));
 static_assert(offsetof(FlutterVenusTextLayoutRunV2, struct_size) == 0u);
 static_assert(offsetof(FlutterVenusTextLayoutRunV2, kind) == 4u);
@@ -91,6 +92,8 @@ static_assert(offsetof(FlutterVenusTextLayoutRunV2,
 static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align) ==
               (kV2Align8 ? 100u : 96u));
 static_assert(offsetof(FlutterVenusTextLayoutRunV2, whitespace_mode) == (kV2Align8 ? 102u : 98u));
+static_assert(offsetof(FlutterVenusTextLayoutRunV2, text_vertical_align_length) ==
+              (kV2Align8 ? 104u : 100u));
 static_assert(sizeof(FlutterVenusTextLayoutLineMetricV2) == 56u);
 static_assert(alignof(FlutterVenusTextLayoutLineMetricV2) == (kV2Align8 ? 8u : 4u));
 static_assert(offsetof(FlutterVenusTextLayoutLineMetricV2, struct_size) == 0u);
