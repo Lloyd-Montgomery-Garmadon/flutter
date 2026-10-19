@@ -50,6 +50,8 @@ class ParagraphSkia : public Paragraph {
 
   void Layout(double width) override;
 
+  void UpdateForegroundColor(const std::vector<std::pair<size_t, size_t>>& ranges, uint32_t argb) override;
+
   bool Paint(flutter::DisplayListBuilder* builder, double x, double y) override;
 
   std::vector<TextBox> GetRectsForRange(

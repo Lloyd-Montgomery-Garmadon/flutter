@@ -148,33 +148,68 @@ bool ValidUtf8(const uint8_t* bytes, uint32_t length) {
 }
 
 int32_t ValidateParagraphInput(
-    const FlutterVenusTextLayoutParagraphInputV2& input) {
+    const FlutterVenusTextLayoutParagraphInputV2& input,
+    FlutterVenusTextLayoutParagraphOutputV2& diagnostic) {
   if (input.struct_size != kParagraphInputStructSize ||
       input.abi_version != FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2) {
     return kFlutterVenusV2AbiMismatch;
   }
-  const bool valid_strut =
-      input.strut_enabled == 0u
-          ? input.strut_font_family_offset == 0u &&
-                input.strut_font_family_length == 0u &&
-                input.strut_font_weight == 0u && input.strut_font_style == 0u &&
-                input.strut_font_size == 0.0 &&
-                input.strut_height_multiple == 0.0
-          : input.strut_enabled == 1u &&
-                (input.strut_font_family_length == 0u ||
-                 input.font_families != nullptr) &&
-                Utf8RangeFits(input.font_families, input.font_families_length,
-                              input.strut_font_family_offset,
-                              input.strut_font_family_length) &&
-                input.strut_font_weight >= 1u &&
-                input.strut_font_weight <= 1000u &&
-                input.strut_font_style <= 1u && input.strut_font_size > 0.0 &&
-                input.strut_font_size <= 4096.0 &&
-                // 0 合法: CSS `line-height: 0` 的 strut 就是零高 (strut_enabled
-                // 本身是 presence 位, 不靠倍数 > 0 表达"有 strut")。
-                input.strut_height_multiple >= 0.0 &&
-                input.strut_height_multiple <= 16.0;
-  if (input.reserved0 != 0u || input.reserved1 != 0u || !valid_strut ||
+  // Strut presence is explicit: a finite zero font size is authored, not absent.
+  // Reuse the existing field/detail vocabulary without changing the wire shape.
+  auto reject_strut = [&](wire::ErrorFieldId field, wire::ItemErrorDetail detail) {
+    diagnostic.error_field_id = static_cast<uint32_t>(field);
+    diagnostic.error_detail = static_cast<uint32_t>(detail);
+    return kFlutterVenusV2InvalidArgument;
+  };
+  if (input.strut_enabled == 0u) {
+    if (input.strut_font_family_offset != 0u ||
+        input.strut_font_family_length != 0u || input.strut_font_weight != 0u ||
+        input.strut_font_style != 0u || input.strut_font_size != 0.0 ||
+        input.strut_height_multiple != 0.0) {
+      return reject_strut(wire::ErrorFieldId::kStrutMode,
+                          wire::ItemErrorDetail::kNoncanonicalInactiveValue);
+    }
+  } else {
+    if (input.strut_enabled != 1u) {
+      return reject_strut(wire::ErrorFieldId::kStrutMode,
+                          wire::ItemErrorDetail::kAboveMax);
+    }
+    if (input.font_families_length > kFlutterVenusV2MaxFontFamilyBytes ||
+        (input.strut_font_family_length != 0u && input.font_families == nullptr) ||
+        !Utf8RangeFits(input.font_families, input.font_families_length,
+                       input.strut_font_family_offset,
+                       input.strut_font_family_length)) {
+      return reject_strut(wire::ErrorFieldId::kFontFamilyRef,
+                          wire::ItemErrorDetail::kOutsidePayload);
+    }
+    if (input.strut_font_weight < 1u || input.strut_font_weight > 1000u) {
+      return reject_strut(wire::ErrorFieldId::kFontWeight,
+                          input.strut_font_weight < 1u
+                              ? wire::ItemErrorDetail::kBelowMin
+                              : wire::ItemErrorDetail::kAboveMax);
+    }
+    if (input.strut_font_style > 1u) {
+      return reject_strut(wire::ErrorFieldId::kFontStyle,
+                          wire::ItemErrorDetail::kAboveMax);
+    }
+    const double values[] = {input.strut_font_size, input.strut_height_multiple};
+    const double maxima[] = {4096.0, 16.0};
+    const wire::ErrorFieldId fields[] = {wire::ErrorFieldId::kFontSize,
+                                       wire::ErrorFieldId::kHeight};
+    for (size_t i = 0u; i < 2u; ++i) {
+      if (!std::isfinite(values[i])) {
+        return reject_strut(fields[i], wire::ItemErrorDetail::kNonFinite);
+      }
+      if (values[i] < 0.0) {
+        return reject_strut(fields[i], wire::ItemErrorDetail::kBelowMin);
+      }
+      if (values[i] > maxima[i]) {
+        return reject_strut(fields[i], wire::ItemErrorDetail::kAboveMax);
+      }
+    }
+  }
+  if ((input.reserved0 & ~kFlutterVenusV2ParagraphFlagFirstLineColor) != 0u ||
+      (input.reserved0 == 0u && input.reserved1 != 0u) ||
       input.run_count == 0u ||
       input.run_count > kFlutterVenusV2MaxParagraphRuns ||
       input.text_length > kFlutterVenusV2MaxTextBytes ||
@@ -214,17 +249,20 @@ int32_t ValidateParagraphInput(
     if (run.height_mode >
             static_cast<uint16_t>(wire::HeightMode::kMultiplier) ||
         run.whitespace_mode > kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
-        run.kind > kFlutterVenusV2RunKindLineBreak || run.font_style > 1u ||
+        run.kind > kFlutterVenusV2RunKindFirstLineText || run.font_style > 1u ||
+        (run.kind == kFlutterVenusV2RunKindFirstLineText &&
+         (input.reserved0 & kFlutterVenusV2ParagraphFlagFirstLineColor) == 0u) ||
         run.placeholder_alignment > 6u || run.placeholder_baseline > 1u ||
         !std::isfinite(run.font_size) ||
         !std::isfinite(run.letter_spacing) ||
         !std::isfinite(run.word_spacing) || !std::isfinite(run.height) ||
         !FiniteNonNegative(run.placeholder_width) ||
-        !FiniteNonNegative(run.placeholder_height) ||
-        !FiniteNonNegative(run.placeholder_baseline_offset)) {
+        !std::isfinite(run.placeholder_height) ||
+        !std::isfinite(run.placeholder_baseline_offset)) {
       return kFlutterVenusV2InvalidArgument;
     }
-    if (run.kind == kFlutterVenusV2RunKindText) {
+    if (run.kind == kFlutterVenusV2RunKindText ||
+        run.kind == kFlutterVenusV2RunKindFirstLineText) {
       // length 复用既有 baseline shift; top / bottom 仍对齐行盒。
       if (run.text_vertical_align != 0u && run.text_vertical_align != 1u &&
           run.text_vertical_align != 3u && run.text_vertical_align != 6u) {
@@ -260,8 +298,10 @@ int32_t ValidateParagraphInput(
     uint64_t length_bits = 0u;
     std::memcpy(&length_bits, &run.text_vertical_align_length,
                 sizeof(length_bits));
-    const bool active_length = run.kind == kFlutterVenusV2RunKindText &&
-                               run.text_vertical_align == 6u;
+    const bool active_length =
+        (run.kind == kFlutterVenusV2RunKindText ||
+         run.kind == kFlutterVenusV2RunKindFirstLineText) &&
+        run.text_vertical_align == 6u;
     if (active_length ? !std::isfinite(run.text_vertical_align_length)
                       : length_bits != 0u) {
       return kFlutterVenusV2InvalidArgument;
@@ -320,7 +360,10 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
   api->capabilities = kFlutterVenusV2CapabilityRequired |
                       kFlutterVenusV2CapabilityPreservedWhitespace |
                       kFlutterVenusV2CapabilityNoSoftWrapRanges |
-                      kFlutterVenusV2CapabilityTextVerticalAlignLength;
+                      kFlutterVenusV2CapabilityTextVerticalAlignLength |
+                      kFlutterVenusV2CapabilitySignedPlaceholderMetrics |
+                      kFlutterVenusV2CapabilityZeroFontStrut |
+                      kFlutterVenusV2CapabilityFirstLineColor;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
   // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -959,7 +1002,7 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   if (input == nullptr) {
     return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
   }
-  const int32_t validation = ValidateParagraphInput(*input);
+  const int32_t validation = ValidateParagraphInput(*input, *output);
   if (validation != kFlutterVenusV2Ok) {
     return WriteParagraphStatus(output, validation);
   }
@@ -1037,12 +1080,15 @@ int32_t VenusTextLayoutService::LayoutParagraph(
       static_cast<venus_text_layout_batch::TextDirection>(input->text_direction);
   view.soft_wrap = input->soft_wrap != 0u;
   view.max_lines = input->max_lines;
+  view.has_first_line_color = input->reserved0 != 0u;
+  view.first_line_color = input->reserved1;
   view.runs.reserve(input->run_count);
   for (uint32_t i = 0; i < input->run_count; ++i) {
     const FlutterVenusTextLayoutRunV2& r = input->runs[i];
     venus_text_layout::ParagraphRunView rv;
     rv.is_placeholder = r.kind == kFlutterVenusV2RunKindPlaceholder;
     rv.is_line_break = r.kind == kFlutterVenusV2RunKindLineBreak;
+    rv.inherits_first_line_color = r.kind == kFlutterVenusV2RunKindFirstLineText;
     rv.preserves_whitespace =
         r.whitespace_mode == kFlutterVenusV2WhitespacePreserve ||
         r.whitespace_mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;

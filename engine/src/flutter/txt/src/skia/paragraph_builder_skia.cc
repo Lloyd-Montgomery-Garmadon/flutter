@@ -141,6 +141,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   skia.setReplaceTabCharacters(true);
   skia.setApplyRoundingHack(false);
   skia.setHonorZeroHeightOverride(txt.honor_zero_height_override);
+  skia.setVenusWordBoundaryWrap(txt.venus_word_boundary_wrap);
   if (!txt.venus_float_exclusions.empty()) {
     std::vector<skt::VenusFloatExclusion> exclusions;
     exclusions.reserve(txt.venus_float_exclusions.size());

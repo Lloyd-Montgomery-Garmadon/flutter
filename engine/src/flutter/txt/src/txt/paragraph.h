@@ -134,6 +134,9 @@ class Paragraph {
   // before Painting and getting any statistics from this class.
   virtual void Layout(double width) = 0;
 
+  // Venus paint-only UTF-16 range update; preserves the laid-out geometry.
+  virtual void UpdateForegroundColor(const std::vector<std::pair<size_t, size_t>>& ranges, uint32_t argb) = 0;
+
   // Paints the laid out text onto the supplied DisplayListBuilder at
   // (x, y) offset from the origin. Only valid after Layout() is called.
   virtual bool Paint(flutter::DisplayListBuilder* builder,

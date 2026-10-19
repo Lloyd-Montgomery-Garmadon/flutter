@@ -590,6 +590,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
   }
 
   txt::ParagraphStyle paragraph_style;
+  // CSS allows overflow at legal word boundaries, never emergency cluster breaks.
+  paragraph_style.venus_word_boundary_wrap = true;
   paragraph_style.venus_float_exclusions.reserve(input.exclusions.size());
   for (const auto& e : input.exclusions) {
     paragraph_style.venus_float_exclusions.push_back(
@@ -760,6 +762,24 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
                     wire::ItemErrorDetail::kUnsupportedCombination);
   }
 
+  // Recolor the same laid-out artifact; never shape or break lines again.
+  if (input.has_first_line_color) {
+    const auto& first_lines = paragraph->GetLineMetrics();
+    if (!first_lines.empty()) {
+      const size_t first_start = first_lines.front().start_index;
+      const size_t first_end = first_lines.front().end_index;
+      std::vector<std::pair<size_t, size_t>> paint_ranges;
+      for (size_t i = 0; i < spans.size(); ++i) {
+        if (!input.runs[i].inherits_first_line_color) continue;
+        const size_t start = std::max(spans[i].begin, first_start);
+        const size_t end = std::min(spans[i].end, first_end);
+        if (start < end) paint_ranges.emplace_back(start, end);
+      }
+      if (!paint_ranges.empty())
+        paragraph->UpdateForegroundColor(paint_ranges, input.first_line_color);
+    }
+  }
+
   out_metrics->width = paragraph->GetLongestLine();
   out_metrics->height = paragraph->GetHeight();
   out_metrics->min_intrinsic_width = paragraph->GetMinIntrinsicWidth();
@@ -813,9 +833,11 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
       fragment.run_index = static_cast<uint32_t>(i);
       fragment.line_number = static_cast<uint32_t>(line_number);
       fragment.left = box.rect.fLeft;
-      fragment.top = box.rect.fTop;
+      // Signed margin extents may invert the logical interval. Return its
+      // ordered bounds; the caller retains orientation and border-box facts.
+      fragment.top = std::min(box.rect.fTop, box.rect.fBottom);
       fragment.right = box.rect.fRight;
-      fragment.bottom = box.rect.fBottom;
+      fragment.bottom = std::max(box.rect.fTop, box.rect.fBottom);
       out_metrics->fragments.push_back(fragment);
     } else if (span.end > span.begin) {
       for (const txt::LineMetrics& line : lines) {

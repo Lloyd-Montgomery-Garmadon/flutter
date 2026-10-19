@@ -124,6 +124,7 @@ ItemFailure LayoutTextNodeCore(
 // 底下就是 txt::Paragraph 的 PushStyle/Pop/AddPlaceholder +
 // GetLineMetrics/GetRectsForRange, **不是新写一个 IFC**。
 struct ParagraphRunView {
+  bool inherits_first_line_color = false;
   bool is_placeholder = false;
   /// 硬换行 (`<br>`)。段落里写一个 U+000A —— **由这里写, 不由调用方混进文本**,
   /// 理由见公共头 kFlutterVenusV2RunKindLineBreak 的说明。
@@ -167,6 +168,8 @@ struct FloatExclusionView {
 };
 
 struct ParagraphInputView {
+  bool has_first_line_color = false;
+  uint32_t first_line_color = 0u;
   std::vector<FloatExclusionView> exclusions;
   std::vector<ParagraphRunView> runs;
   std::string locale;

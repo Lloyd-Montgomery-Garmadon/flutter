@@ -65,6 +65,9 @@ class ParagraphStyle {
   // Empty by default: ordinary Flutter paragraphs retain their original path.
   std::vector<FloatExclusion> venus_float_exclusions;
 
+  // Explicit Venus CSS policy; ordinary Flutter paragraphs keep emergency breaks.
+  bool venus_word_boundary_wrap = false;
+
   // Default TextStyle. Used in GetTextStyle() to obtain the base TextStyle to
   // inherit off of.
   int font_weight = FontWeight::normal;

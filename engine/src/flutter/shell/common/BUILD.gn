@@ -280,7 +280,10 @@ if (enable_unittests) {
   # §8 P3 的 core 唯一守卫：blob 路 (Phase 1 oracle) vs native 路 (V2 sync adapter)
   # 逐 bit 对拍，外加逐项 fail-closed 矩阵。独立可执行文件，自带 gtest main。
   shell_host_executable("venus_text_layout_v2_parity_tests") {
-    sources = [ "venus_text_layout_v2_parity_tests.cc" ]
+    sources = [
+      "venus_text_layout_v2_parity_tests.cc",
+      "venus_text_layout_float_parity_tests.cc",
+    ]
 
     deps = [
       "//flutter/lib/ui",

@@ -295,6 +295,19 @@ void ParagraphSkia::Layout(double width) {
   paragraph_->layout(width);
 }
 
+void ParagraphSkia::UpdateForegroundColor(const std::vector<std::pair<size_t, size_t>>& ranges, uint32_t argb) {
+  flutter::DlPaint paint;
+  paint.setColor(flutter::DlColor(argb));
+  const auto id = dl_paints_.size();
+  dl_paints_.push_back(paint);
+  std::vector<skia::textlayout::TextRange> paint_ranges;
+  paint_ranges.reserve(ranges.size());
+  for (const auto& range : ranges) paint_ranges.emplace_back(range.first, range.second);
+  paragraph_->updateForegroundPaintIDForRanges(paint_ranges, id);
+  line_metrics_.reset();
+  line_metrics_styles_.clear();
+}
+
 bool ParagraphSkia::Paint(DisplayListBuilder* builder, double x, double y) {
   DisplayListParagraphPainter painter(builder, dl_paints_, impeller_enabled_);
   paragraph_->paint(&painter, x, y);

@@ -32,11 +32,17 @@
 #include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 
+#include "flutter/shell/common/venus_text_layout_parity_test_support.h"
+
 namespace flutter {
 namespace testing {
 namespace {
 
 namespace wire = venus_text_layout_batch;
+using venus_parity::Bits;
+using venus_parity::MakeFonts;
+using venus_parity::MakeRobotoFonts;
+using venus_parity::ParagraphWire;
 
 // 一个 corpus 项。字段集与 §8 P3 的矩阵一一对应；每个 case 都必须满足 Phase 1
 // 冻结的组合真值表（locale 非空、soft_wrap=true、noScaling 时 scaler 恰为 1.0、
@@ -365,12 +371,6 @@ FlutterVenusTextLayoutInputV2 NativeInput(const Case& c,
   return in;
 }
 
-uint64_t Bits(double v) {
-  uint64_t b = 0;
-  std::memcpy(&b, &v, sizeof(b));
-  return b;
-}
-
 uint64_t ReadU64(const std::vector<uint8_t>& b, size_t off) {
   uint64_t v = 0;
   std::memcpy(&v, b.data() + off, sizeof(v));
@@ -383,80 +383,6 @@ uint32_t ReadU32(const std::vector<uint8_t>& b, size_t off) {
          static_cast<uint32_t>(b[off + 2]) << 16 |
          static_cast<uint32_t>(b[off + 3]) << 24;
 }
-
-std::shared_ptr<FontCollection> MakeFonts() {
-  auto fonts = std::make_shared<FontCollection>();
-  fonts->SetupDefaultFontManager(0u);
-  fonts->RegisterTestFonts();
-  return fonts;
-}
-
-std::shared_ptr<FontCollection> MakeRobotoFonts() {
-  auto fonts = MakeFonts();
-  // RegisterTestFonts maps unknown families to FlutterTest. Replace that test
-  // manager with the SDK's actual Roboto face for these CSS geometry controls.
-  auto typeface = txt::GetDefaultFontManager()->makeFromFile(
-      "flutter/txt/third_party/fonts/Roboto-Regular.ttf");
-  EXPECT_NE(typeface, nullptr);
-  if (!typeface) {
-    return nullptr;
-  }
-  SkString family;
-  typeface->getFamilyName(&family);
-  EXPECT_STREQ(family.c_str(), "Roboto");
-  auto provider = std::make_unique<txt::TypefaceFontAssetProvider>();
-  provider->RegisterTypeface(std::move(typeface), "Roboto");
-  fonts->GetFontCollection()->SetTestFontManager(
-      sk_make_sp<txt::AssetFontManager>(std::move(provider)));
-  return fonts;
-}
-
-struct ParagraphWire {
-  std::string text = "Gate A paragraph";
-  std::string family = "Roboto";
-  std::string ellipsis = "\xE2\x80\xA6";
-  FlutterVenusTextLayoutRunV2 run{};
-  FlutterVenusTextLayoutLineMetricV2 line{};
-  FlutterVenusTextLayoutFragmentRectV2 fragment{};
-  FlutterVenusTextLayoutParagraphInputV2 input{};
-  FlutterVenusTextLayoutParagraphOutputV2 output{};
-
-  ParagraphWire() {
-    run.struct_size = sizeof(run);
-    run.kind = kFlutterVenusV2RunKindText;
-    run.text_length = static_cast<uint32_t>(text.size());
-    run.font_family_length = static_cast<uint32_t>(family.size());
-    run.font_weight = 400u;
-    run.font_size = 16.0;
-    input.struct_size = sizeof(input);
-    input.abi_version = FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2;
-    input.run_count = 1u;
-    input.text_length = static_cast<uint32_t>(text.size());
-    input.font_families_length = static_cast<uint32_t>(family.size());
-    input.ellipsis_length = static_cast<uint32_t>(ellipsis.size());
-    input.text_direction = 1u;
-    input.text_align = 5u;
-    input.soft_wrap = 1u;
-    input.line_metric_capacity = 1u;
-    input.fragment_rect_capacity = 1u;
-    input.runs = &run;
-    input.text = reinterpret_cast<const uint8_t*>(text.data());
-    input.font_families = reinterpret_cast<const uint8_t*>(family.data());
-    input.line_metrics_out = &line;
-    input.fragment_rects_out = &fragment;
-    input.max_width = 200.0;
-    input.ellipsis = reinterpret_cast<const uint8_t*>(ellipsis.data());
-    output.struct_size = sizeof(output);
-  }
-
-  void EnableStrut(double font_size = 10.0, double height_multiple = 1.0) {
-    input.strut_font_family_length = static_cast<uint32_t>(family.size());
-    input.strut_font_weight = 400u;
-    input.strut_enabled = 1u;
-    input.strut_font_size = font_size;
-    input.strut_height_multiple = height_multiple;
-  }
-};
 
 }  // namespace
 
@@ -789,6 +715,8 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
     const char* name;
     int32_t expected;
     void (*mutate)(ParagraphWire*);
+    uint32_t error_field = 0u;
+    uint32_t error_detail = 0u;
   };
   const Rejection rejections[] = {
       {"input size", kFlutterVenusV2AbiMismatch,
@@ -863,11 +791,27 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
          w->EnableStrut();
          w->input.strut_font_style = 2u;
        }},
+      // Zero is now the positive regression above; the invalid-size contract
+      // retains the original rejection assertions using a genuinely negative size.
       {"strut size", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) {
          w->EnableStrut();
-         w->input.strut_font_size = 0.0;
-       }},
+         w->input.strut_font_size = -1.0;
+       }, 12u, 1u},
+      {"strut size NaN", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(std::nan(""), 0.0); }, 12u, 3u},
+      {"strut size positive infinity", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(std::numeric_limits<double>::infinity(), 0.0); }, 12u, 3u},
+      {"strut size negative infinity", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(-std::numeric_limits<double>::infinity(), 0.0); }, 12u, 3u},
+      {"strut size above maximum", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(4097.0, 0.0); }, 12u, 2u},
+      {"strut height NaN", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(20.0, std::nan("")); }, 15u, 3u},
+      {"strut height infinity", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(20.0, std::numeric_limits<double>::infinity()); }, 15u, 3u},
+      {"strut height above maximum", kFlutterVenusV2InvalidArgument,
+       [](ParagraphWire* w) { w->EnableStrut(20.0, 17.0); }, 15u, 2u},
       // 0 已合法 (CSS `line-height: 0` 的零高 strut), 负值仍拒。
       {"strut height", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) {
@@ -883,6 +827,7 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
        }},
   };
   for (const Rejection& rejection : rejections) {
+    SCOPED_TRACE(rejection.name);
     ParagraphWire wire;
     rejection.mutate(&wire);
     const int32_t status = FlutterVenusTextLayoutParagraphV2(
@@ -891,6 +836,10 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
     EXPECT_EQ(wire.output.status, status) << rejection.name;
     EXPECT_EQ(wire.output.width, 0.0) << rejection.name;
     EXPECT_EQ(wire.output.line_metric_count, 0u) << rejection.name;
+    if (rejection.error_field != 0u) {
+      EXPECT_EQ(wire.output.error_field_id, rejection.error_field);
+      EXPECT_EQ(wire.output.error_detail, rejection.error_detail);
+    }
   }
 
   // Exact RunV2 shape is required before reading its tail or advancing the stride.
@@ -961,6 +910,7 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
   EXPECT_EQ(valid.output.truncated, 1u);
   EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityPreservedWhitespace, 0u);
   EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityTextVerticalAlignLength, 0u);
+  EXPECT_NE(api.capabilities & kFlutterVenusV2CapabilityZeroFontStrut, 0u);
   valid.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
   EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(
                 kEngineId, slot, lease, &valid.input, &valid.output),
@@ -1134,13 +1084,106 @@ TEST(VenusTextLayoutParityV2, ParagraphV2ZeroFontSizeRunIsAuthoredNotInvalid) {
   uint64_t lease = 0u;
   ASSERT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);
 
-  ParagraphWire w;
-  w.run.font_size = 0.0;
-  const int32_t status = FlutterVenusTextLayoutParagraphV2(
-      kEngineId, slot, lease, &w.input, &w.output);
-  EXPECT_EQ(status, kFlutterVenusV2Ok)
-      << "font-size:0 是合法声明, 段落路不该判 InvalidArgument";
-  EXPECT_EQ(w.output.status, status);
+  struct ZeroFontCase {
+    const char* name;
+    uint32_t run_count;
+    uint16_t height_mode;
+    bool enabled_strut;
+    double strut_size;
+    double strut_height;
+  };
+  const ZeroFontCase cases[] = {
+      {"original zero-font run", 1u, 0u, false, 0.0, 0.0},
+      {"zero strut single natural run", 1u, 1u, true, 0.0, 0.0},
+      {"zero strut single declared-zero run", 1u, 2u, true, 0.0, 0.0},
+      {"zero strut mixed natural runs", 3u, 1u, true, 0.0, 0.0},
+      {"zero strut mixed declared-zero runs", 3u, 2u, true, 0.0, 0.0},
+      {"zero strut positive multiplier", 3u, 1u, true, 0.0, 1.5},
+      {"positive strut zero multiplier", 3u, 1u, true, 20.0, 0.0},
+      {"maximum finite strut size", 3u, 1u, true, 4096.0, 0.0},
+  };
+  for (const ZeroFontCase& c : cases) {
+    SCOPED_TRACE(c.name);
+    ParagraphWire w;
+    w.run.font_size = 0.0;
+    std::vector<FlutterVenusTextLayoutRunV2> runs;
+    std::vector<FlutterVenusTextLayoutFragmentRectV2> fragments(8);
+    if (c.enabled_strut) {
+      w.text = "TESTINLINEVISIBLE";
+      w.input.text = reinterpret_cast<const uint8_t*>(w.text.data());
+      w.input.text_length = static_cast<uint32_t>(w.text.size());
+      for (uint32_t i = 0; i < c.run_count; ++i) {
+        auto run = w.run;
+        run.text_offset = c.run_count == 1u ? 0u : (i == 0u ? 0u : (i == 1u ? 4u : 10u));
+        run.text_length = c.run_count == 1u ? 17u : (i == 0u ? 4u : (i == 1u ? 6u : 7u));
+        run.font_size = c.run_count == 1u || i == 2u ? 20.0 : 0.0;
+        run.height_mode = c.height_mode;
+        runs.push_back(run);
+      }
+      w.input.runs = runs.data();
+      w.input.run_count = static_cast<uint32_t>(runs.size());
+      w.input.fragment_rects_out = fragments.data();
+      w.input.fragment_rect_capacity = static_cast<uint32_t>(fragments.size());
+      w.EnableStrut(c.strut_size, c.strut_height);
+    }
+    const int32_t status = FlutterVenusTextLayoutParagraphV2(
+        kEngineId, slot, lease, &w.input, &w.output);
+    EXPECT_EQ(status, kFlutterVenusV2Ok)
+        << "font-size:0 是合法声明, 段落路不该判 InvalidArgument";
+    EXPECT_EQ(w.output.status, status);
+    if (status != kFlutterVenusV2Ok || !c.enabled_strut) continue;
+    EXPECT_EQ(w.output.truncated, 0u);
+    EXPECT_EQ(w.output.line_metric_count, 1u);
+    if (c.strut_size != 0.0) continue;
+
+    // Geometry probe v2: an enabled zero-size strut retains its baseline point.
+    // The old disabled-equivalence prediction is archived verbatim with its
+    // failure; it was invalid when a zero-height run has a negative descent.
+    FlutterVenusTextLayoutParagraphInputV2 control = w.input;
+    control.strut_enabled = 0u;
+    control.strut_font_family_offset = 0u;
+    control.strut_font_family_length = 0u;
+    control.strut_font_weight = 0u;
+    control.strut_font_style = 0u;
+    control.strut_font_size = 0.0;
+    control.strut_height_multiple = 0.0;
+    FlutterVenusTextLayoutLineMetricV2 control_line{};
+    std::vector<FlutterVenusTextLayoutFragmentRectV2> control_fragments(8);
+    control.line_metrics_out = &control_line;
+    control.fragment_rects_out = control_fragments.data();
+    FlutterVenusTextLayoutParagraphOutputV2 control_output{};
+    control_output.struct_size = sizeof(control_output);
+    ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(
+                  kEngineId, slot, lease, &control, &control_output),
+              kFlutterVenusV2Ok);
+    EXPECT_DOUBLE_EQ(w.output.width, control_output.width);
+    SCOPED_TRACE("zero strut baseline-envelope probe v3");
+    const double envelope_ascent = std::max(0.0, control_line.ascent);
+    const double envelope_descent = std::max(0.0, control_line.descent);
+    const double envelope_height = std::round(envelope_ascent + envelope_descent);
+    EXPECT_DOUBLE_EQ(w.output.height, envelope_height);
+    EXPECT_DOUBLE_EQ(w.output.first_baseline, control_output.first_baseline);
+    EXPECT_DOUBLE_EQ(w.output.min_intrinsic_width, control_output.min_intrinsic_width);
+    EXPECT_DOUBLE_EQ(w.output.max_intrinsic_width, control_output.max_intrinsic_width);
+    EXPECT_EQ(w.output.fragment_rect_count, control_output.fragment_rect_count);
+    EXPECT_DOUBLE_EQ(w.line.height, envelope_height);
+    // Public ascent/descent intentionally report fMaxRunMetrics (before strut)
+    // in TextLine::getMetrics; line-box height reports the merged envelope.
+    EXPECT_DOUBLE_EQ(w.line.ascent, control_line.ascent);
+    EXPECT_DOUBLE_EQ(w.line.descent, control_line.descent);
+    if (control_line.descent < 0.0) {
+      EXPECT_GT(w.line.height, control_line.height);
+    }
+    EXPECT_DOUBLE_EQ(w.line.baseline, control_line.baseline);
+    for (uint32_t i = 0; i < w.output.fragment_rect_count; ++i) {
+      EXPECT_EQ(fragments[i].run_index, control_fragments[i].run_index);
+      EXPECT_EQ(fragments[i].line_number, control_fragments[i].line_number);
+      EXPECT_DOUBLE_EQ(fragments[i].left, control_fragments[i].left);
+      EXPECT_DOUBLE_EQ(fragments[i].top, control_fragments[i].top);
+      EXPECT_DOUBLE_EQ(fragments[i].right, control_fragments[i].right);
+      EXPECT_DOUBLE_EQ(fragments[i].bottom, control_fragments[i].bottom);
+    }
+  }
 
   EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
   api.release_context(api.context);
@@ -1287,502 +1330,6 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
   api.release_context(api.context);
   VenusTextLayoutRegistry::Unregister(kEngineId, generation);
-}
-
-namespace {
-struct FloatParagraphWire : ParagraphWire {
-  std::vector<FlutterVenusTextLayoutLineMetricV2> lines{128};
-  std::vector<FlutterVenusTextLayoutFragmentRectV2> fragments{128};
-
-  explicit FloatParagraphWire(std::string contents) {
-    text = std::move(contents);
-    run.text_color_argb = 0xff000000u;
-    input.text = reinterpret_cast<const uint8_t*>(text.data());
-    input.text_length = run.text_length = static_cast<uint32_t>(text.size());
-    input.line_metrics_out = lines.data();
-    input.line_metric_capacity = static_cast<uint32_t>(lines.size());
-    input.fragment_rects_out = fragments.data();
-    input.fragment_rect_capacity = static_cast<uint32_t>(fragments.size());
-  }
-};
-
-struct FloatProfileSession {
-  const uint64_t engine;
-  uint64_t generation = 0;
-  FlutterVenusTextLayoutApiV2 api{};
-  uint32_t slot = 0;
-  uint64_t lease = 0;
-  bool valid = false;
-
-  explicit FloatProfileSession(
-      uint64_t id,
-      std::shared_ptr<FontCollection> fonts = MakeFonts())
-      : engine(id) {
-    if (!fonts) {
-      return;
-    }
-    generation = VenusTextLayoutRegistry::Register(engine, std::move(fonts), false);
-    if (generation != 0 &&
-        VenusTextLayoutRegistry::GetApi(engine, sizeof(api), &api) ==
-            kFlutterVenusV2Ok) {
-      valid = api.acquire_slot(api.context, &slot, &lease) == kFlutterVenusV2Ok;
-    }
-  }
-  ~FloatProfileSession() {
-    if (lease != 0) {
-      EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
-    }
-    if (api.context != nullptr) {
-      api.release_context(api.context);
-    }
-    VenusTextLayoutRegistry::Unregister(engine, generation);
-  }
-  int32_t Layout(FloatParagraphWire& paragraph,
-                 const VenusParagraphExclusionsV1* profile) {
-    paragraph.output.struct_size = sizeof(paragraph.output);
-    return FlutterVenusTextLayoutParagraphWithExclusionsV1(
-        engine, slot, lease, &paragraph.input, profile, &paragraph.output);
-  }
-};
-
-VenusParagraphExclusionsV1 FloatProfile(
-    const VenusFloatExclusionV1* rects = nullptr,
-    uint32_t count = 0) {
-  return {sizeof(VenusParagraphExclusionsV1), 1u, count, 0u, rects};
-}
-}  // namespace
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1TrustBoundaryAndEmptyParity) {
-  FloatProfileSession session(0x5741564531460001ull);
-  ASSERT_TRUE(session.valid);
-  FloatParagraphWire paragraph(
-      "one two three four five six seven eight nine ten");
-  auto empty = FloatProfile();
-  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(session.engine, session.slot,
-                                              session.lease, &paragraph.input,
-                                              &paragraph.output),
-            kFlutterVenusV2Ok);
-  const auto old_output = paragraph.output;
-  const auto old_lines = paragraph.lines;
-  const auto old_fragments = paragraph.fragments;
-  ASSERT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2Ok);
-  EXPECT_EQ(std::memcmp(&old_output, &paragraph.output, sizeof(old_output)), 0);
-  EXPECT_EQ(std::memcmp(old_lines.data(), paragraph.lines.data(),
-                        old_output.line_metric_count * sizeof(old_lines[0])),
-            0);
-  EXPECT_EQ(
-      std::memcmp(old_fragments.data(), paragraph.fragments.data(),
-                  old_output.fragment_rect_count * sizeof(old_fragments[0])),
-      0);
-  EXPECT_EQ(session.Layout(paragraph, nullptr), kFlutterVenusV2InvalidArgument);
-  VenusFloatExclusionV1 rect{0, 40, 0, 80, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  auto bad = profile;
-  bad.struct_size -= 1;
-  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2AbiMismatch);
-  bad = profile;
-  bad.abi_version = 2;
-  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2AbiMismatch);
-  bad = profile;
-  bad.reserved = 1;
-  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
-  bad = profile;
-  bad.exclusions = nullptr;
-  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
-  bad = profile;
-  bad.count = 0;
-  EXPECT_EQ(session.Layout(paragraph, &bad), kFlutterVenusV2InvalidArgument);
-  const auto valid_rect = rect;
-  for (int field = 0; field < 4; ++field) {
-    rect = valid_rect;
-    double* coordinates[] = {&rect.top, &rect.bottom, &rect.left, &rect.right};
-    *coordinates[field] = std::numeric_limits<double>::infinity();
-    EXPECT_EQ(session.Layout(paragraph, &profile),
-              kFlutterVenusV2InvalidArgument);
-  }
-  rect = valid_rect;
-  rect.top = std::numeric_limits<double>::quiet_NaN();
-  EXPECT_EQ(session.Layout(paragraph, &profile),
-            kFlutterVenusV2InvalidArgument);
-  rect = valid_rect;
-  rect.bottom = rect.top;
-  EXPECT_EQ(session.Layout(paragraph, &profile),
-            kFlutterVenusV2InvalidArgument);
-  rect = valid_rect;
-  rect.right = rect.left - 1;
-  EXPECT_EQ(session.Layout(paragraph, &profile),
-            kFlutterVenusV2InvalidArgument);
-  rect = valid_rect;
-  rect.side = 0;
-  EXPECT_EQ(session.Layout(paragraph, &profile),
-            kFlutterVenusV2InvalidArgument);
-  rect = valid_rect;
-  rect.reserved = 1;
-  EXPECT_EQ(session.Layout(paragraph, &profile),
-            kFlutterVenusV2InvalidArgument);
-  rect = valid_rect;
-  rect.top = -10;  // A float may begin in an earlier paragraph.
-  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-  EXPECT_EQ(paragraph.lines.front().left, 80);
-}
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1RestoresWidthBelowBothFloatSides) {
-  FloatProfileSession session(0x5741564531460002ull);
-  ASSERT_TRUE(session.valid);
-  const std::string text =
-      "one two three four five six seven eight nine ten eleven twelve "
-      "one two three four five six seven eight nine ten eleven twelve";
-  FloatParagraphWire plain(text);
-  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(session.engine, session.slot,
-                                              session.lease, &plain.input,
-                                              &plain.output),
-            kFlutterVenusV2Ok);
-  const double bottom = plain.lines.front().height * 2;
-  for (uint32_t side : {uint32_t(kVenusFloatExclusionSideLeftV1),
-                        uint32_t(kVenusFloatExclusionSideRightV1)}) {
-    SCOPED_TRACE(side);
-    FloatParagraphWire paragraph(text);
-    VenusFloatExclusionV1 rect{
-        0, bottom, side == 1 ? 0.0 : 100.0, side == 1 ? 100.0 : 200.0, side, 0};
-    auto profile = FloatProfile(&rect, 1);
-    ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-    ASSERT_EQ(paragraph.output.truncated, 0u);
-    ASSERT_GT(paragraph.output.line_metric_count, 2u);
-    EXPECT_DOUBLE_EQ(paragraph.lines[0].left, side == 1 ? 100 : 0);
-    EXPECT_LE(paragraph.lines[0].width, 100);
-    bool saw_full_width = false;
-    for (uint32_t i = 2; i < paragraph.output.line_metric_count; ++i) {
-      if (paragraph.lines[i].width > 100) {
-        saw_full_width = true;
-        EXPECT_DOUBLE_EQ(paragraph.lines[i].left, 0);
-      }
-    }
-    EXPECT_TRUE(saw_full_width);
-    // Same text/fonts/full width but a moved band must not reuse old geometry.
-    rect.top = bottom;
-    rect.bottom = bottom * 2;
-    ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-    EXPECT_DOUBLE_EQ(paragraph.lines.front().left, 0);
-    EXPECT_GT(paragraph.lines.front().width, 100);
-  }
-}
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1ActualHeightAndClearance) {
-  FloatProfileSession session(0x5741564531460003ull);
-  ASSERT_TRUE(session.valid);
-  FloatParagraphWire paragraph("x");
-  FlutterVenusTextLayoutRunV2 runs[] = {paragraph.run, {}};
-  runs[1].struct_size = sizeof(runs[1]);
-  runs[1].kind = kFlutterVenusV2RunKindPlaceholder;
-  runs[1].placeholder_width = 30;
-  runs[1].placeholder_height = 70;
-  runs[1].placeholder_baseline_offset = 70;
-  paragraph.input.runs = runs;
-  paragraph.input.run_count = 2;
-  VenusFloatExclusionV1 rect{20, 90, 0, 100, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-  ASSERT_EQ(paragraph.output.line_metric_count, 1u);
-  EXPECT_GE(paragraph.lines.front().height, 70);
-  EXPECT_DOUBLE_EQ(paragraph.lines.front().left, 100);
-
-  // The first unbreakable word fits the full width, but not the one-pixel band.
-  FloatParagraphWire clearance("MMMM");
-  rect = {0, 60, 0, 199, kVenusFloatExclusionSideLeftV1, 0};
-  ASSERT_EQ(session.Layout(clearance, &profile), kFlutterVenusV2Ok);
-  ASSERT_EQ(clearance.output.line_metric_count, 1u);
-  EXPECT_DOUBLE_EQ(clearance.lines.front().left, 0);
-  EXPECT_GE(clearance.lines.front().baseline, 60);
-  EXPECT_DOUBLE_EQ(clearance.output.first_baseline,
-                   clearance.lines.front().baseline);
-
-  // CSS normal/normal does not permit an emergency break inside a word.
-  // Measure the real Roboto glyphs first; the corpus must exceed the full band.
-  FloatProfileSession roboto(0x5741564531460092ull, MakeRobotoFonts());
-  ASSERT_TRUE(roboto.valid);
-  const std::string long_word =
-      "SupercalifragilisticexpialidociousSupercalifragilisticexpialidocious";
-  FloatParagraphWire unbounded(long_word);
-  unbounded.input.max_width = 1e7;
-  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(
-                roboto.engine, roboto.slot, roboto.lease, &unbounded.input,
-                &unbounded.output),
-            kFlutterVenusV2Ok);
-  ASSERT_EQ(unbounded.output.line_metric_count, 1u);
-  const double word_width = unbounded.lines.front().width;
-  ASSERT_GT(word_width, 200.0);
-
-  // The default Flutter path retains its existing cluster wrapping.
-  FloatParagraphWire default_wrapping(long_word);
-  ASSERT_EQ(FlutterVenusTextLayoutParagraphV2(
-                roboto.engine, roboto.slot, roboto.lease,
-                &default_wrapping.input, &default_wrapping.output),
-            kFlutterVenusV2Ok);
-  EXPECT_GT(default_wrapping.output.line_metric_count, 1u);
-  EXPECT_LE(default_wrapping.lines.front().width, 200.0);
-
-  FloatParagraphWire overflowing(long_word);
-  rect = {0, 50, 0, 50, kVenusFloatExclusionSideLeftV1, 0};
-  ASSERT_EQ(roboto.Layout(overflowing, &profile), kFlutterVenusV2Ok);
-  EXPECT_EQ(overflowing.output.truncated, 0u);
-  ASSERT_EQ(overflowing.output.line_metric_count, 1u);
-  EXPECT_DOUBLE_EQ(overflowing.lines.front().left, 0.0);
-  EXPECT_GE(overflowing.lines.front().baseline - overflowing.lines.front().ascent,
-            50.0);
-  EXPECT_GT(overflowing.lines.front().width, 200.0);
-  EXPECT_NEAR(overflowing.lines.front().width, word_width, 0.01);
-  for (uint32_t i = 0; i < overflowing.output.fragment_rect_count; ++i) {
-    EXPECT_EQ(overflowing.fragments[i].line_number, 0u);
-  }
-
-  // An earlier legal word stays beside the float; the long word clears intact.
-  FloatParagraphWire preceded("x " + long_word);
-  ASSERT_EQ(roboto.Layout(preceded, &profile), kFlutterVenusV2Ok);
-  ASSERT_EQ(preceded.output.line_metric_count, 2u);
-  EXPECT_DOUBLE_EQ(preceded.lines[0].left, 50.0);
-  EXPECT_DOUBLE_EQ(preceded.lines[1].left, 0.0);
-  EXPECT_GE(preceded.lines[1].baseline - preceded.lines[1].ascent, 50.0);
-  EXPECT_NEAR(preceded.lines[1].width, word_width, 0.01);
-
-  // Legal word/ZWSP boundaries continue to wrap beside the float.
-  for (const std::string& text : {
-           std::string("MMMMMMMM MMMMMMMM MMMMMMMM"),
-           std::string("MMMMMMMM\xE2\x80\x8BMMMMMMMM\xE2\x80\x8BMMMMMMMM")}) {
-    SCOPED_TRACE(text);
-    FloatParagraphWire breakable(text);
-    breakable.input.paragraph_height_multiple = 1.25;
-    breakable.run.height = 1.25;
-    ASSERT_EQ(roboto.Layout(breakable, &profile), kFlutterVenusV2Ok);
-    EXPECT_EQ(breakable.output.truncated, 0u);
-    EXPECT_GT(breakable.output.line_metric_count, 1u);
-    EXPECT_DOUBLE_EQ(breakable.lines.front().left, 50.0);
-    EXPECT_NEAR(breakable.lines.front().baseline - breakable.lines.front().ascent,
-                0.0, 0.01);
-    EXPECT_LE(breakable.lines.front().width, 150.0);
-  }
-
-  FloatParagraphWire hard_break("MMMM\nMMMM");
-  hard_break.run.whitespace_mode = kFlutterVenusV2WhitespacePreserve;
-  ASSERT_EQ(roboto.Layout(hard_break, &profile), kFlutterVenusV2Ok);
-  EXPECT_EQ(hard_break.output.line_metric_count, 2u);
-}
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1NoWrapKeepsSingleLine) {
-  FloatProfileSession session(0x5741564531460004ull);
-  ASSERT_TRUE(session.valid);
-  FloatParagraphWire paragraph(
-      "one two three four five six seven eight nine ten");
-  paragraph.input.soft_wrap = 0;
-  VenusFloatExclusionV1 rect{0, 50, 0, 100, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-  EXPECT_EQ(paragraph.output.line_metric_count, 1u);
-  EXPECT_GT(paragraph.lines.front().width, paragraph.input.max_width);
-
-  // nowrap overflows from the available first-line origin instead of clearing.
-  FloatProfileSession roboto(0x5741564531460093ull, MakeRobotoFonts());
-  ASSERT_TRUE(roboto.valid);
-  rect.right = 50;
-  FloatParagraphWire nowrap(
-      "mixed English words that should wrap around the float on the left side");
-  nowrap.input.soft_wrap = 0;
-  nowrap.input.paragraph_height_multiple = 1.25;
-  nowrap.run.height = 1.25;
-  ASSERT_EQ(roboto.Layout(nowrap, &profile), kFlutterVenusV2Ok);
-  EXPECT_EQ(nowrap.output.truncated, 0u);
-  ASSERT_EQ(nowrap.output.line_metric_count, 1u);
-  EXPECT_DOUBLE_EQ(nowrap.lines.front().left, 50.0);
-  EXPECT_NEAR(nowrap.lines.front().baseline - nowrap.lines.front().ascent,
-              0.0, 0.01);
-  EXPECT_GT(nowrap.lines.front().width, 200.0);
-
-  // Both public encodings of pre preserve spaces/LF and suppress soft wrapping.
-  for (bool paragraph_no_wrap : {false, true}) {
-    SCOPED_TRACE(paragraph_no_wrap);
-    FloatParagraphWire pre("mixed English words   keep spaces\n"
-                           "second explicit line   keeps spaces");
-    pre.input.soft_wrap = paragraph_no_wrap ? 0 : 1;
-    pre.run.whitespace_mode = paragraph_no_wrap
-                                  ? kFlutterVenusV2WhitespacePreserve
-                                  : kFlutterVenusV2WhitespacePreserveNoSoftWrap;
-    pre.input.paragraph_height_multiple = 1.25;
-    pre.run.height = 1.25;
-    rect.bottom = 10;
-    ASSERT_EQ(roboto.Layout(pre, &profile), kFlutterVenusV2Ok);
-    EXPECT_EQ(pre.output.truncated, 0u);
-    ASSERT_EQ(pre.output.line_metric_count, 2u);
-    EXPECT_DOUBLE_EQ(pre.lines[0].left, 50.0);
-    EXPECT_NEAR(pre.lines[0].baseline - pre.lines[0].ascent, 0.0, 0.01);
-    EXPECT_DOUBLE_EQ(pre.lines[1].left, 0.0);
-    EXPECT_NEAR(pre.lines[1].baseline - pre.lines[1].ascent, 20.0, 0.01);
-    EXPECT_DOUBLE_EQ(pre.lines[0].height, 20.0);
-  }
-}
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1FiniteDoubleScalarBoundary) {
-  FloatProfileSession session(0x5741564531460006ull);
-  ASSERT_TRUE(session.valid);
-  const double huge = std::numeric_limits<double>::max();
-  ASSERT_TRUE(std::isfinite(huge));
-
-  // Huge coordinates that clip to a representable band remain valid. In
-  // particular, a negative top is not a reason to reject an earlier float.
-  FloatParagraphWire clipped("MMMM");
-  VenusFloatExclusionV1 rect{
-      -huge, 60, -huge, 80, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  ASSERT_EQ(session.Layout(clipped, &profile), kFlutterVenusV2Ok);
-  ASSERT_EQ(clipped.output.line_metric_count, 1u);
-  EXPECT_DOUBLE_EQ(clipped.lines.front().left, 80);
-  EXPECT_TRUE(std::isfinite(clipped.output.height));
-  EXPECT_TRUE(std::isfinite(clipped.lines.front().baseline));
-
-  // A fully blocked line must clear this float. Its finite double bottom cannot
-  // be represented by SkScalar: report a layout failure rather than converting
-  // to inf or silently laying text inside the exclusion at y=0.
-  FloatParagraphWire blocked("MMMM");
-  rect = {0, huge, 0, blocked.input.max_width, kVenusFloatExclusionSideLeftV1,
-          0};
-  EXPECT_EQ(session.Layout(blocked, &profile), kFlutterVenusV2ItemFailed);
-  EXPECT_EQ(blocked.output.status, kFlutterVenusV2ItemFailed);
-  EXPECT_EQ(blocked.output.line_metric_count, 0u);
-  EXPECT_EQ(blocked.output.fragment_rect_count, 0u);
-}
-
-TEST(VenusTextLayoutParityV2, FloatProfileV1TextVerticalAlignAfterClearance) {
-  FloatProfileSession session(0x5741564531460007ull);
-  ASSERT_TRUE(session.valid);
-  struct Laid {
-    int32_t status;
-    FlutterVenusTextLayoutParagraphOutputV2 output;
-    FlutterVenusTextLayoutLineMetricV2 line;
-    FlutterVenusTextLayoutFragmentRectV2 fragments[2];
-  };
-  const auto lay = [&](uint16_t align, double line_height,
-                       const VenusParagraphExclusionsV1* profile) {
-    FloatParagraphWire paragraph("Ab");
-    FlutterVenusTextLayoutRunV2 runs[] = {paragraph.run, paragraph.run};
-    runs[0].text_offset = 0;
-    runs[0].text_length = 1;
-    runs[0].font_size = 40;
-    runs[1].text_offset = 1;
-    runs[1].text_length = 1;
-    runs[1].font_size = 16;
-    runs[1].text_vertical_align = align;
-    if (line_height > 0) {
-      runs[0].height_mode = runs[1].height_mode = 2u;
-      runs[0].height = runs[1].height = line_height;
-    }
-    paragraph.input.runs = runs;
-    paragraph.input.run_count = 2;
-    Laid result{};
-    result.status = profile == nullptr
-                        ? FlutterVenusTextLayoutParagraphV2(
-                              session.engine, session.slot, session.lease,
-                              &paragraph.input, &paragraph.output)
-                        : session.Layout(paragraph, profile);
-    result.output = paragraph.output;
-    result.line = paragraph.lines.front();
-    for (uint32_t i = 0; i < paragraph.output.fragment_rect_count; ++i) {
-      if (paragraph.fragments[i].run_index < 2) {
-        result.fragments[paragraph.fragments[i].run_index] =
-            paragraph.fragments[i];
-      }
-    }
-    return result;
-  };
-  constexpr double clearance = 60;
-  VenusFloatExclusionV1 rect{
-      0, clearance, 0, 199, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  auto empty = FloatProfile();
-  for (uint16_t align : {uint16_t(0), uint16_t(1), uint16_t(3)}) {
-    for (double line_height : {0.0, 1.0}) {
-      SCOPED_TRACE(align);
-      SCOPED_TRACE(line_height);
-      const Laid plain = lay(align, line_height, nullptr);
-      const Laid empty_profile = lay(align, line_height, &empty);
-      ASSERT_EQ(plain.status, kFlutterVenusV2Ok);
-      ASSERT_EQ(empty_profile.status, kFlutterVenusV2Ok);
-      ASSERT_EQ(plain.output.line_metric_count, 1u);
-      ASSERT_EQ(plain.output.fragment_rect_count, 2u);
-      EXPECT_EQ(std::memcmp(&plain.output, &empty_profile.output,
-                            sizeof(plain.output)),
-                0);
-      EXPECT_EQ(
-          std::memcmp(&plain.line, &empty_profile.line, sizeof(plain.line)), 0);
-      EXPECT_EQ(std::memcmp(plain.fragments, empty_profile.fragments,
-                            sizeof(plain.fragments)),
-                0);
-
-      // Clearing an unbreakable word only translates its native line origin.
-      // top/bottom alignment and authored line-height stay local to that line.
-      const Laid cleared = lay(align, line_height, &profile);
-      ASSERT_EQ(cleared.status, kFlutterVenusV2Ok);
-      ASSERT_EQ(cleared.output.line_metric_count, 1u);
-      ASSERT_EQ(cleared.output.fragment_rect_count, 2u);
-      EXPECT_DOUBLE_EQ(cleared.line.left, plain.line.left);
-      EXPECT_DOUBLE_EQ(cleared.line.width, plain.line.width);
-      EXPECT_DOUBLE_EQ(cleared.line.height, plain.line.height);
-      EXPECT_NEAR(cleared.line.baseline, plain.line.baseline + clearance, 0.01);
-      EXPECT_NEAR(cleared.output.first_baseline,
-                  plain.output.first_baseline + clearance, 0.01);
-      EXPECT_NEAR(cleared.output.height, plain.output.height + clearance, 0.01);
-      for (size_t i = 0; i < 2; ++i) {
-        EXPECT_DOUBLE_EQ(cleared.fragments[i].left, plain.fragments[i].left);
-        EXPECT_DOUBLE_EQ(cleared.fragments[i].right, plain.fragments[i].right);
-        EXPECT_NEAR(cleared.fragments[i].top,
-                    plain.fragments[i].top + clearance, 0.01);
-        EXPECT_NEAR(cleared.fragments[i].bottom,
-                    plain.fragments[i].bottom + clearance, 0.01);
-      }
-    }
-  }
-}
-
-TEST(VenusTextLayoutParityV2,
-     FloatProfileV1ClaimOwnsGeometryForRelayoutPaintAndHit) {
-  FloatProfileSession session(0x5741564531460005ull);
-  ASSERT_TRUE(session.valid);
-  FloatParagraphWire paragraph("MMMM");
-  paragraph.input.paragraph_token = 0x5741564531461005ull;
-  VenusFloatExclusionV1 rect{0, 80, 0, 80, kVenusFloatExclusionSideLeftV1, 0};
-  auto profile = FloatProfile(&rect, 1);
-  ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
-  FlutterVenusTextLayoutCountersV2 counters{};
-  ASSERT_EQ(session.api.get_counters_v2(session.api.context, sizeof(counters),
-                                        &counters),
-            kFlutterVenusV2Ok);
-  ASSERT_EQ(session.api.release_slot(session.api.context, session.slot,
-                                     session.lease),
-            kFlutterVenusV2Ok);
-  session.lease = 0;
-  // Borrowed geometry is invalid immediately after return; claim must retain a
-  // copy.
-  rect = {0, 0, 0, 0, 0, 0};
-  auto claimed = venus_text_layout::ParagraphStore::Instance().Claim(
-      paragraph.input.paragraph_token, paragraph.input.max_width,
-      counters.font_epoch);
-  ASSERT_NE(claimed, nullptr);
-  ASSERT_EQ(claimed->GetLineMetrics().size(), 1u);
-  EXPECT_DOUBLE_EQ(claimed->GetLineMetrics().front().left, 80);
-  claimed->Layout(320);
-  const auto& line = claimed->GetLineMetrics().front();
-  EXPECT_DOUBLE_EQ(line.left, 80);
-  const auto boxes =
-      claimed->GetRectsForRange(0, 1, txt::Paragraph::RectHeightStyle::kTight,
-                                txt::Paragraph::RectWidthStyle::kTight);
-  ASSERT_FALSE(boxes.empty());
-  EXPECT_GE(boxes.front().rect.left(), 80);
-  EXPECT_EQ(
-      claimed->GetGlyphPositionAtCoordinate(81, line.baseline / 2).position,
-      0u);
-  DisplayListBuilder builder;
-  EXPECT_TRUE(claimed->Paint(&builder, 0, 0));
-  const auto painted = builder.Build();
-  ASSERT_NE(painted, nullptr);
-  EXPECT_GT(painted->op_count(), 0u);
-  EXPECT_GT(painted->GetBounds().GetLeft(), 50);
 }
 
 }  // namespace testing

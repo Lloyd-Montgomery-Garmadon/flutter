@@ -79,7 +79,11 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityPreservedWhitespace = 1u << 4,
   kFlutterVenusV2CapabilityNoSoftWrapRanges = 1u << 5,
   kFlutterVenusV2CapabilityTextVerticalAlignLength = 1u << 6,
-  kFlutterVenusV2CapabilityKnownMask       = 0x7du,
+  kFlutterVenusV2CapabilitySignedPlaceholderMetrics = 1u << 7,
+  // Enabled strut font size may be finite zero; no ABI structure changes.
+  kFlutterVenusV2CapabilityZeroFontStrut   = 1u << 8,
+  kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
+  kFlutterVenusV2CapabilityKnownMask       = 0x3fdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -370,6 +374,9 @@ typedef enum FlutterVenusTextLayoutRunKindV2 {
   /// 所以硬换行必须以**结构**的形式过边界, 不能混进内容里。修法与当初那条
   /// 一致: 把"这是一个换行"这件事声明出来, 由边界自己去写那个字符。
   kFlutterVenusV2RunKindLineBreak   = 2,
+  // Same text fields; opts this run into the paragraph first-line color.
+  // Requires CapabilityFirstLineColor and ParagraphFlagFirstLineColor.
+  kFlutterVenusV2RunKindFirstLineText = 3,
 } FlutterVenusTextLayoutRunKindV2;
 
 // Venus-only per-run mode; default 0 retains ordinary widget behavior.
@@ -410,6 +417,8 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   double height;
   /// kind=Placeholder 专用。
   double placeholder_width;
+  /// Signed margin-box line extent and baseline rise (SignedPlaceholderMetrics).
+  /// These are not drawable border-box dimensions; rect output is ordered bounds.
   double placeholder_height;
   double placeholder_baseline_offset;
   uint16_t placeholder_alignment;
@@ -449,6 +458,10 @@ typedef struct FlutterVenusTextLayoutFragmentRectV2 {
   double bottom;
 } FlutterVenusTextLayoutFragmentRectV2;
 
+typedef enum FlutterVenusTextLayoutParagraphFlagV2 {
+  kFlutterVenusV2ParagraphFlagFirstLineColor = 1u << 0,
+} FlutterVenusTextLayoutParagraphFlagV2;
+
 typedef struct FlutterVenusTextLayoutParagraphInputV2 {
   uint32_t struct_size;
   uint32_t abi_version;
@@ -459,6 +472,7 @@ typedef struct FlutterVenusTextLayoutParagraphInputV2 {
   uint16_t text_direction;
   uint16_t text_align;
   uint16_t soft_wrap;
+  // ParagraphFlagV2; zero retains existing behavior (same size/offset).
   uint16_t reserved0;
   uint32_t max_lines;  ///< 0 = 不限
   /// 调用方分配的回填缓冲上限。引擎按上限填, 实际条数写回 Output;
@@ -480,6 +494,7 @@ typedef struct FlutterVenusTextLayoutParagraphInputV2 {
   /// Wave 1 只校验并纳入 identity；真正截断在 TODO 7。
   const uint8_t* ellipsis;
   uint32_t ellipsis_length;
+  // First-line ARGB when ParagraphFlagFirstLineColor is set; otherwise zero.
   uint32_t reserved1;
   /// 容器 strut 的 font-family 在 `font_families` 里的字节区间。
   uint32_t strut_font_family_offset;
