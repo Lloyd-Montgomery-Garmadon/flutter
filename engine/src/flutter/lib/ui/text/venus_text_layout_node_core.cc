@@ -607,7 +607,6 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
   // CSS 段落: 声明的零行高是零高行内盒 (CSS 2.1 §10.8.1), 不是"未设置"。
   // 只有 height_declared 的 run 会带"覆盖 + 0", 其余 run 与旧口径逐位相同。
   paragraph_style.honor_zero_height_override = true;
-  paragraph_style.venus_word_boundary_wrap = true;
   // 无容器 strut 的兼容路径以首个真实文本 run 作为换行默认样式。LineBreak
   // 本身没有字体，不能拿它的零值污染 paragraph default。
   for (const ParagraphRunView& r : input.runs) {

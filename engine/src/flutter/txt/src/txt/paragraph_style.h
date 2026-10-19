@@ -100,7 +100,6 @@ class ParagraphStyle {
   // height 0 is an authored zero line height, not "unset". Off by default so
   // every Flutter paragraph keeps "height 0 = font metrics".
   bool honor_zero_height_override = false;
-  bool venus_word_boundary_wrap = false;
 
   // General paragraph properties.
   TextAlign text_align = TextAlign::start;
