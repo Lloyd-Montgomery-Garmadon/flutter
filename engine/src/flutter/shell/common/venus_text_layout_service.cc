@@ -154,6 +154,20 @@ int32_t ValidateParagraphInput(
       input.abi_version != FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2) {
     return kFlutterVenusV2AbiMismatch;
   }
+  const bool absolute_strut = (input.reserved0 &
+      kFlutterVenusV2ParagraphFlagStrutAbsoluteHeight) != 0u;
+  // Existing font-size limit times the existing height-multiplier limit.
+  constexpr double kMaxAbsoluteHeightPx = 4096.0 * 16.0;
+  const auto note_absolute_height = [&](double height) {
+    wire::ItemErrorDetail detail = wire::ItemErrorDetail::kNone;
+    if (!std::isfinite(height)) detail = wire::ItemErrorDetail::kNonFinite;
+    else if (height < 0.0) detail = wire::ItemErrorDetail::kBelowMin;
+    else if (height > kMaxAbsoluteHeightPx) detail = wire::ItemErrorDetail::kAboveMax;
+    if (detail != wire::ItemErrorDetail::kNone) {
+      diagnostic.error_field_id = static_cast<uint32_t>(wire::ErrorFieldId::kHeight);
+      diagnostic.error_detail = static_cast<uint32_t>(detail);
+    }
+  };
   // Strut presence is explicit: a finite zero font size is authored, not absent.
   // Reuse the existing field/detail vocabulary without changing the wire shape.
   auto reject_strut = [&](wire::ErrorFieldId field, wire::ItemErrorDetail detail) {
@@ -193,7 +207,7 @@ int32_t ValidateParagraphInput(
                           wire::ItemErrorDetail::kAboveMax);
     }
     const double values[] = {input.strut_font_size, input.strut_height_multiple};
-    const double maxima[] = {4096.0, 16.0};
+    const double maxima[] = {4096.0, absolute_strut ? kMaxAbsoluteHeightPx : 16.0};
     const wire::ErrorFieldId fields[] = {wire::ErrorFieldId::kFontSize,
                                        wire::ErrorFieldId::kHeight};
     for (size_t i = 0u; i < 2u; ++i) {
@@ -208,8 +222,10 @@ int32_t ValidateParagraphInput(
       }
     }
   }
-  if ((input.reserved0 & ~kFlutterVenusV2ParagraphFlagFirstLineColor) != 0u ||
-      (input.reserved0 == 0u && input.reserved1 != 0u) ||
+  if ((input.reserved0 & ~(kFlutterVenusV2ParagraphFlagFirstLineColor |
+                           kFlutterVenusV2ParagraphFlagStrutAbsoluteHeight)) != 0u ||
+      (absolute_strut && input.strut_enabled != 1u) ||
+      ((input.reserved0 & kFlutterVenusV2ParagraphFlagFirstLineColor) == 0u && input.reserved1 != 0u) ||
       input.run_count == 0u ||
       input.run_count > kFlutterVenusV2MaxParagraphRuns ||
       input.text_length > kFlutterVenusV2MaxTextBytes ||
@@ -238,6 +254,7 @@ int32_t ValidateParagraphInput(
       !ValidUtf8(input.font_families, input.font_families_length) ||
       !ValidUtf8(input.locale, input.locale_length) ||
       !ValidUtf8(input.ellipsis, input.ellipsis_length)) {
+    if (absolute_strut) note_absolute_height(input.strut_height_multiple);
     return kFlutterVenusV2InvalidArgument;
   }
 
@@ -246,8 +263,7 @@ int32_t ValidateParagraphInput(
     if (run.struct_size != sizeof(FlutterVenusTextLayoutRunV2)) {
       return kFlutterVenusV2AbiMismatch;
     }
-    if (run.height_mode >
-            static_cast<uint16_t>(wire::HeightMode::kMultiplier) ||
+    if (run.height_mode > kFlutterVenusV2RunHeightAbsolutePx ||
         run.whitespace_mode > kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
         run.kind > kFlutterVenusV2RunKindFirstLineText || run.font_style > 1u ||
         (run.kind == kFlutterVenusV2RunKindFirstLineText &&
@@ -259,6 +275,8 @@ int32_t ValidateParagraphInput(
         !FiniteNonNegative(run.placeholder_width) ||
         !std::isfinite(run.placeholder_height) ||
         !std::isfinite(run.placeholder_baseline_offset)) {
+      if (run.height_mode == kFlutterVenusV2RunHeightAbsolutePx)
+        note_absolute_height(run.height);
       return kFlutterVenusV2InvalidArgument;
     }
     if (run.kind == kFlutterVenusV2RunKindText ||
@@ -276,7 +294,10 @@ int32_t ValidateParagraphInput(
           // CSS Fonts 4 §3.1: font-size 计算值为 0 是合法值, 不是错误 (常见于
           // 清除 inline-block 间隙); 负值仍不是合法 CSS 长度。
           run.font_size < 0.0 || run.font_size > 4096.0 || run.height < 0.0 ||
-          run.height > 16.0) {
+          run.height > (run.height_mode == kFlutterVenusV2RunHeightAbsolutePx
+                            ? kMaxAbsoluteHeightPx : 16.0)) {
+        if (run.height_mode == kFlutterVenusV2RunHeightAbsolutePx)
+          note_absolute_height(run.height);
         return kFlutterVenusV2InvalidArgument;
       }
       // FontMetrics 下 height 不参与, 与单节点 InputV2 同一条"非活动值必须规范"。
@@ -363,7 +384,8 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
                       kFlutterVenusV2CapabilityTextVerticalAlignLength |
                       kFlutterVenusV2CapabilitySignedPlaceholderMetrics |
                       kFlutterVenusV2CapabilityZeroFontStrut |
-                      kFlutterVenusV2CapabilityFirstLineColor;
+                      kFlutterVenusV2CapabilityFirstLineColor |
+                      kFlutterVenusV2CapabilityAbsoluteLineHeight;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
   // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -1073,6 +1095,8 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     view.strut_font_weight = static_cast<int>(input->strut_font_weight);
     view.strut_italic = input->strut_font_style != 0u;
     view.strut_height_multiple = input->strut_height_multiple;
+    view.strut_height_absolute = (input->reserved0 &
+        kFlutterVenusV2ParagraphFlagStrutAbsoluteHeight) != 0u;
   }
   view.text_align =
       static_cast<venus_text_layout_batch::TextAlign>(input->text_align);
@@ -1107,7 +1131,9 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     rv.word_spacing = r.word_spacing;
     rv.height_multiple = r.height;
     rv.height_declared =
-        r.height_mode == static_cast<uint16_t>(wire::HeightMode::kMultiplier);
+        r.height_mode == static_cast<uint16_t>(wire::HeightMode::kMultiplier) ||
+        r.height_mode == kFlutterVenusV2RunHeightAbsolutePx;
+    rv.height_absolute = r.height_mode == kFlutterVenusV2RunHeightAbsolutePx;
     rv.color_argb = r.text_color_argb;
     rv.placeholder_width = r.placeholder_width;
     rv.placeholder_height = r.placeholder_height;

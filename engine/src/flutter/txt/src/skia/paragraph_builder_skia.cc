@@ -103,6 +103,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   text_style.setFontSize(SkDoubleToScalar(txt.font_size));
   text_style.setHeight(SkDoubleToScalar(txt.height));
   text_style.setHeightOverride(txt.has_height_override);
+  text_style.setVenusAbsoluteHeight(txt.venus_absolute_height);
   text_style.setHalfLeading(txt.half_leading);
   text_style.setFontFamilies({SkString(txt.font_family.c_str())});
   text_style.setLocale(SkString(txt.locale.c_str()));
@@ -118,6 +119,7 @@ skt::ParagraphStyle ParagraphBuilderSkia::TxtToSkia(const ParagraphStyle& txt) {
   strut_style.setFontSize(SkDoubleToScalar(txt.strut_font_size));
   strut_style.setHeight(SkDoubleToScalar(txt.strut_height));
   strut_style.setHeightOverride(txt.strut_has_height_override);
+  strut_style.setVenusAbsoluteHeight(txt.strut_venus_absolute_height);
   strut_style.setHalfLeading(txt.strut_half_leading);
 
   std::vector<SkString> strut_fonts;
@@ -179,6 +181,7 @@ skt::TextStyle ParagraphBuilderSkia::TxtToSkia(const TextStyle& txt) {
   skia.setVenusNoSoftWrap(txt.venus_no_soft_wrap);
   skia.setHeight(SkDoubleToScalar(txt.height));
   skia.setHeightOverride(txt.has_height_override);
+  skia.setVenusAbsoluteHeight(txt.venus_absolute_height);
   skia.setHalfLeading(txt.half_leading);
   skia.setBaselineShift(SkDoubleToScalar(txt.baseline_shift));
 

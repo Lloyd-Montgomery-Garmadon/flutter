@@ -76,6 +76,7 @@ class ParagraphStyle {
   double font_size = 14;
   double height = 1;
   bool has_height_override = false;
+  bool venus_absolute_height = false;  // Default text style, Venus-only.
   bool half_leading = false;
   size_t text_height_behavior = TextHeightBehavior::kAll;
 
@@ -89,6 +90,7 @@ class ParagraphStyle {
   double strut_font_size = 14;
   double strut_height = 1;
   bool strut_has_height_override = false;
+  bool strut_venus_absolute_height = false;
   bool strut_half_leading = false;
   double strut_leading = -1;  // Negative to use font's default leading. [0,inf)
                               // to use custom leading as a ratio of font size.
@@ -98,6 +100,7 @@ class ParagraphStyle {
   // height 0 is an authored zero line height, not "unset". Off by default so
   // every Flutter paragraph keeps "height 0 = font metrics".
   bool honor_zero_height_override = false;
+  bool venus_word_boundary_wrap = false;
 
   // General paragraph properties.
   TextAlign text_align = TextAlign::start;

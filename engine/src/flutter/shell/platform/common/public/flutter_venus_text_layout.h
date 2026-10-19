@@ -83,7 +83,8 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   // Enabled strut font size may be finite zero; no ABI structure changes.
   kFlutterVenusV2CapabilityZeroFontStrut   = 1u << 8,
   kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
-  kFlutterVenusV2CapabilityKnownMask       = 0x3fdu,
+  kFlutterVenusV2CapabilityAbsoluteLineHeight = 1u << 10,
+  kFlutterVenusV2CapabilityKnownMask       = 0x7fdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -389,6 +390,15 @@ typedef enum FlutterVenusTextLayoutWhitespaceModeV2 {
   kFlutterVenusV2WhitespacePreserveNoSoftWrap = 2,
 } FlutterVenusTextLayoutWhitespaceModeV2;
 
+/// Paragraph runs only; scalar InputV2 retains its existing modes.
+typedef enum FlutterVenusTextLayoutRunHeightModeV2 {
+  kFlutterVenusV2RunHeightUnspecified = 0,
+  kFlutterVenusV2RunHeightFontMetrics = 1,
+  kFlutterVenusV2RunHeightMultiplier = 2,
+  /// Requires AbsoluteLineHeight; height is finite, nonnegative CSS px.
+  kFlutterVenusV2RunHeightAbsolutePx = 3,
+} FlutterVenusTextLayoutRunHeightModeV2;
+
 typedef struct FlutterVenusTextLayoutRunV2 {
   uint32_t struct_size;
   uint32_t kind;  ///< FlutterVenusTextLayoutRunKindV2
@@ -408,12 +418,13 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   ///   1 = FontMetrics: 字体自然行高, height 必须逐位为 0;
   ///   2 = Multiplier: height 是作者声明的倍数, **0 也算** —— CSS `line-height: 0`
   ///       的零高行内盒 (CSS 2.1 §10.8.1), 不是"未设置"。
+  ///   3 = AbsolutePx: height is CSS px, including at font-size 0.
   /// 非文本 run 必须为 0。
   uint16_t height_mode;
   double font_size;
   double letter_spacing;
   double word_spacing;
-  /// 行高**倍数** (不是 px); 0 的含义由 `height_mode` 决定。
+  /// 行高：mode 3 为 CSS px，其余为倍数；0 的含义由 height_mode 决定。
   double height;
   /// kind=Placeholder 专用。
   double placeholder_width;
@@ -459,7 +470,9 @@ typedef struct FlutterVenusTextLayoutFragmentRectV2 {
 } FlutterVenusTextLayoutFragmentRectV2;
 
 typedef enum FlutterVenusTextLayoutParagraphFlagV2 {
+  kFlutterVenusV2ParagraphFlagNone = 0,
   kFlutterVenusV2ParagraphFlagFirstLineColor = 1u << 0,
+  kFlutterVenusV2ParagraphFlagStrutAbsoluteHeight = 1u << 1,
 } FlutterVenusTextLayoutParagraphFlagV2;
 
 typedef struct FlutterVenusTextLayoutParagraphInputV2 {
@@ -504,7 +517,7 @@ typedef struct FlutterVenusTextLayoutParagraphInputV2 {
   /// 0 = 关闭，且其余 strut 字段必须全部为 0。
   uint16_t strut_enabled;
   double strut_font_size;
-  /// 容器 line-height 倍数；enabled 时始终是 explicit override。
+  /// 容器 line-height；StrutAbsoluteHeight 置位时为 CSS px，否则为倍数。
   double strut_height_multiple;
 } FlutterVenusTextLayoutParagraphInputV2;
 

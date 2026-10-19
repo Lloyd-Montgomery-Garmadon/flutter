@@ -45,6 +45,7 @@ class TextStyle {
   bool venus_no_soft_wrap = false;
   double height = 1.0;
   bool has_height_override = false;
+  bool venus_absolute_height = false;  // Venus-only: height is CSS px.
   // Vertical offset of this run from the line baseline (logical pixels, down
   // is positive). Forwarded to skt::TextStyle::setBaselineShift.
   double baseline_shift = 0.0;

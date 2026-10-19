@@ -142,6 +142,7 @@ struct ParagraphRunView {
   /// 行高是作者声明的值 —— **0 也算** (CSS `line-height: 0`, 零高行内盒)。
   /// false 时沿用旧口径: 0 = 字体自然行高。
   bool height_declared = false;
+  bool height_absolute = false;  ///< Venus-only: height_multiple is CSS px.
   uint32_t color_argb = 0u;
   double placeholder_width = 0.0;
   double placeholder_height = 0.0;
@@ -181,6 +182,7 @@ struct ParagraphInputView {
   int strut_font_weight = 0;
   bool strut_italic = false;
   double strut_height_multiple = 0.0;
+  bool strut_height_absolute = false;
   wire::TextAlign text_align = wire::TextAlign::kStart;
   wire::TextDirection text_direction = wire::TextDirection::kLtr;
   bool soft_wrap = true;

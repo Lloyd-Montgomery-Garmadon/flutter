@@ -48,6 +48,7 @@ bool TextStyle::equals(const TextStyle& other) const {
   if (height != other.height) {
     return false;
   }
+  if (venus_absolute_height != other.venus_absolute_height) return false;
   if (has_height_override != other.has_height_override) {
     return false;
   }

@@ -607,6 +607,7 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
   // CSS 段落: 声明的零行高是零高行内盒 (CSS 2.1 §10.8.1), 不是"未设置"。
   // 只有 height_declared 的 run 会带"覆盖 + 0", 其余 run 与旧口径逐位相同。
   paragraph_style.honor_zero_height_override = true;
+  paragraph_style.venus_word_boundary_wrap = true;
   // 无容器 strut 的兼容路径以首个真实文本 run 作为换行默认样式。LineBreak
   // 本身没有字体，不能拿它的零值污染 paragraph default。
   for (const ParagraphRunView& r : input.runs) {
@@ -616,7 +617,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
       paragraph_style.font_weight = r.font_weight;
       paragraph_style.font_style =
           r.italic ? txt::FontStyle::italic : txt::FontStyle::normal;
-      if (r.height_multiple > 0.0) {
+      if (r.height_absolute) paragraph_style.venus_absolute_height = true;
+      if (r.height_multiple > 0.0 || r.height_absolute) {
         paragraph_style.height = r.height_multiple;
         paragraph_style.has_height_override = true;
         paragraph_style.half_leading = true;
@@ -650,6 +652,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
     paragraph_style.strut_font_style =
         input.strut_italic ? txt::FontStyle::italic : txt::FontStyle::normal;
     paragraph_style.strut_height = input.strut_height_multiple;
+    paragraph_style.venus_absolute_height = input.strut_height_absolute;
+    paragraph_style.strut_venus_absolute_height = input.strut_height_absolute;
     paragraph_style.strut_has_height_override = true;
     paragraph_style.strut_half_leading = true;
     paragraph_style.force_strut_height = false;
@@ -720,6 +724,7 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
       text_style.letter_spacing = r.letter_spacing;
       text_style.word_spacing = r.word_spacing;
       text_style.venus_no_soft_wrap = r.no_soft_wrap;
+      text_style.venus_absolute_height = r.height_absolute;
       // 声明过的行高 (含 CSS `line-height: 0`) 一律覆盖; 段落已打开
       // honor_zero_height_override, Skia 不再把倍数 0 当"未设置"。
       if (r.height_multiple > 0.0 || r.height_declared) {
@@ -730,6 +735,7 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
         text_style.has_height_override = false;
       }
       if (r.collapse_to_baseline) {
+        text_style.venus_absolute_height = false;
         // 按比例缩成 0 高 (不用 half-leading: 那会收成 (A+D)/2 那一点而不在基线上)。
         text_style.height = 0.0;
         text_style.has_height_override = true;

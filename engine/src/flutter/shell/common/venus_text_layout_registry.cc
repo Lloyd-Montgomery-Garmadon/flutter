@@ -43,7 +43,8 @@ static_assert(kFlutterVenusV2CapabilityTextVerticalAlignLength == 0x40u);
 static_assert(kFlutterVenusV2CapabilitySignedPlaceholderMetrics == 0x80u);
 static_assert(kFlutterVenusV2CapabilityZeroFontStrut == 0x100u);
 static_assert(kFlutterVenusV2CapabilityFirstLineColor == 0x200u);
-static_assert(kFlutterVenusV2CapabilityKnownMask == 0x3fdu);
+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x7fdu);
+static_assert(kFlutterVenusV2CapabilityAbsoluteLineHeight == (1u << 10));
 // §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 // 生产必需集(仍在 KnownMask 内, 是可选能力)。
 static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
