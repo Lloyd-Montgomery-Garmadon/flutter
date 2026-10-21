@@ -71,6 +71,8 @@ void ParagraphBuilderSkia::AddPlaceholder(PlaceholderRun& span) {
   skt::PlaceholderStyle placeholder_style;
   placeholder_style.fHeight = span.height;
   placeholder_style.fWidth = span.width;
+  placeholder_style.fVenusInlineEdge = span.venus_inline_edge;
+  placeholder_style.fVenusInlineEdgeStart = span.venus_inline_edge_start;
   placeholder_style.fBaseline = static_cast<skt::TextBaseline>(span.baseline);
   placeholder_style.fBaselineOffset = span.baseline_offset;
   placeholder_style.fAlignment =

@@ -266,7 +266,7 @@ int32_t ValidateParagraphInput(
     }
     if (run.height_mode > kFlutterVenusV2RunHeightAbsolutePx ||
         run.whitespace_mode > kFlutterVenusV2WhitespacePreserveNoSoftWrap ||
-        run.kind > kFlutterVenusV2RunKindFirstLineText || run.font_style > 1u ||
+        run.kind > kFlutterVenusV2RunKindInlineEdge || run.font_style > 1u ||
         (run.kind == kFlutterVenusV2RunKindFirstLineText &&
          (input.reserved0 & kFlutterVenusV2ParagraphFlagFirstLineColor) == 0u) ||
         run.placeholder_alignment > 6u || run.placeholder_baseline > 1u ||
@@ -310,12 +310,20 @@ int32_t ValidateParagraphInput(
           height_bits != 0u) {
         return kFlutterVenusV2InvalidArgument;
       }
-    } else if (run.height_mode != 0u || run.text_vertical_align != 0u ||
+    } else if (run.height_mode != 0u ||
+               (run.kind == kFlutterVenusV2RunKindInlineEdge
+                    ? run.text_vertical_align > kFlutterVenusV2InlineEdgeStart
+                    : run.text_vertical_align != 0u) ||
                run.whitespace_mode != kFlutterVenusV2WhitespaceNormal ||
                run.text_offset != 0u ||
                run.text_length != 0u ||
                run.font_family_offset != 0u ||
                run.font_family_length != 0u) {
+      return kFlutterVenusV2InvalidArgument;
+    }
+    if (run.kind == kFlutterVenusV2RunKindInlineEdge &&
+        (run.placeholder_height != 0.0 || run.placeholder_baseline_offset != 0.0 ||
+         run.placeholder_alignment != 0u || run.placeholder_baseline != 0u)) {
       return kFlutterVenusV2InvalidArgument;
     }
     uint64_t length_bits = 0u;
@@ -388,6 +396,7 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
                       kFlutterVenusV2CapabilityZeroFontStrut |
                       kFlutterVenusV2CapabilityFirstLineColor |
                       kFlutterVenusV2CapabilityAbsoluteLineHeight |
+                      kFlutterVenusV2CapabilityInlineEdge |
                       kFlutterVenusV2CapabilityTextMiddleParentFont;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
@@ -1140,7 +1149,10 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   for (uint32_t i = 0; i < input->run_count; ++i) {
     const FlutterVenusTextLayoutRunV2& r = input->runs[i];
     venus_text_layout::ParagraphRunView rv;
-    rv.is_placeholder = r.kind == kFlutterVenusV2RunKindPlaceholder;
+    rv.inline_edge = r.kind == kFlutterVenusV2RunKindInlineEdge;
+    rv.inline_edge_start = rv.inline_edge &&
+        r.text_vertical_align == kFlutterVenusV2InlineEdgeStart;
+    rv.is_placeholder = r.kind == kFlutterVenusV2RunKindPlaceholder || rv.inline_edge;
     rv.is_line_break = r.kind == kFlutterVenusV2RunKindLineBreak;
     rv.inherits_first_line_color = r.kind == kFlutterVenusV2RunKindFirstLineText;
     rv.preserves_whitespace =

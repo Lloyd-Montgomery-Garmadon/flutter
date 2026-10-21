@@ -48,6 +48,8 @@ class PlaceholderRun {
  public:
   double width = 0;
   double height = 0;
+  // Opt-in only; ordinary Flutter placeholders retain their word boundaries.
+  bool venus_inline_edge = false, venus_inline_edge_start = false;
 
   PlaceholderAlignment alignment;
 

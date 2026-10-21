@@ -766,6 +766,8 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
                                  r.placeholder_alignment),
                              txt::TextBaseline::kAlphabetic,
                              r.placeholder_baseline_offset);
+      ph.venus_inline_edge = r.inline_edge;
+      ph.venus_inline_edge_start = r.inline_edge_start;
       builder->AddPlaceholder(ph);
       // 占位在段落里占一个 U+FFFC (object replacement character)。
       cursor += 1;

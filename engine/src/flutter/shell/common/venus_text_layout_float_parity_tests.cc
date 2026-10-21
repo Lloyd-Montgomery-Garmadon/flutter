@@ -170,6 +170,70 @@ TEST(VenusTextLayoutParityV2, FloatProfileV1TrustBoundaryAndEmptyParity) {
   rect.top = -10;  // A float may begin in an earlier paragraph.
   ASSERT_EQ(session.Layout(paragraph, &profile), kFlutterVenusV2Ok);
   EXPECT_EQ(paragraph.lines.front().left, 80);
+
+  {
+    FloatProfileSession session(0x494e4c494e450001ull);
+    ASSERT_TRUE(session.valid);
+    const auto empty = FloatProfile();
+    FloatParagraphWire plain("a b");
+    ASSERT_EQ(session.Layout(plain, &empty), kFlutterVenusV2Ok);
+    const double width = plain.output.max_intrinsic_width * 0.7;
+    ASSERT_GT(width, 4);
+    for (uint16_t side : {uint16_t(kFlutterVenusV2InlineEdgeEnd),
+                          uint16_t(kFlutterVenusV2InlineEdgeStart)}) {
+      SCOPED_TRACE(side);
+      FloatParagraphWire paragraph("a b");
+      FlutterVenusTextLayoutRunV2 runs[] = {paragraph.run, {}, paragraph.run};
+      const bool start = side == kFlutterVenusV2InlineEdgeStart;
+      runs[0].text_length = start ? 2 : 1;
+      runs[1].struct_size = sizeof(runs[1]);
+      runs[1].kind = kFlutterVenusV2RunKindInlineEdge;
+      runs[1].text_vertical_align = side;
+      runs[1].placeholder_width = 4;
+      runs[2].text_offset = runs[0].text_length;
+      runs[2].text_length = 3 - runs[0].text_length;
+      paragraph.input.runs = runs;
+      paragraph.input.run_count = 3;
+      paragraph.input.max_width = width;
+      ASSERT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2Ok);
+      ASSERT_EQ(paragraph.output.line_metric_count, 2u);
+      EXPECT_DOUBLE_EQ(paragraph.output.max_intrinsic_width,
+                       plain.output.max_intrinsic_width + 4);
+      const FlutterVenusTextLayoutFragmentRectV2* edge = nullptr;
+      const FlutterVenusTextLayoutFragmentRectV2* bound_text = nullptr;
+      for (uint32_t i = 0; i < paragraph.output.fragment_rect_count; ++i) {
+        const auto& fragment = paragraph.fragments[i];
+        if (fragment.run_index == 1) edge = &fragment;
+        if (fragment.run_index == (start ? 2u : 0u)) bound_text = &fragment;
+      }
+      ASSERT_NE(edge, nullptr);
+      ASSERT_NE(bound_text, nullptr);
+      EXPECT_EQ(edge->line_number, start ? 1u : 0u);
+      EXPECT_EQ(edge->line_number, bound_text->line_number);
+      EXPECT_DOUBLE_EQ(edge->right - edge->left, 4);
+      EXPECT_DOUBLE_EQ(edge->top, edge->bottom);
+      if (start) EXPECT_DOUBLE_EQ(edge->right, bound_text->left);
+      else EXPECT_DOUBLE_EQ(edge->left, bound_text->right);
+
+      for (uint16_t invalid : {uint16_t(2), uint16_t(65535)}) {
+        runs[1].text_vertical_align = invalid;
+        EXPECT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2InvalidArgument);
+      }
+      runs[1].text_vertical_align = side;
+      runs[1].placeholder_height = 1;
+      EXPECT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2InvalidArgument);
+      runs[1].placeholder_height = 0;
+      runs[1].placeholder_baseline_offset = 1;
+      EXPECT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2InvalidArgument);
+      runs[1].placeholder_baseline_offset = 0;
+      runs[1].text_vertical_align_length = 1;
+      EXPECT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2InvalidArgument);
+      runs[1].text_vertical_align_length = 0;
+      runs[1].kind = kFlutterVenusV2RunKindPlaceholder;
+      runs[1].text_vertical_align = 1;
+      EXPECT_EQ(session.Layout(paragraph, &empty), kFlutterVenusV2InvalidArgument);
+    }
+  }
 }
 
 TEST(VenusTextLayoutParityV2, FloatProfileV1RestoresWidthBelowBothFloatSides) {
@@ -540,6 +604,9 @@ TEST(VenusTextLayoutParityV2,
   EXPECT_GT(painted->op_count(), 0u);
   EXPECT_GT(painted->GetBounds().GetLeft(), 50);
 }
+
+
+
 
 }  // namespace testing
 }  // namespace flutter

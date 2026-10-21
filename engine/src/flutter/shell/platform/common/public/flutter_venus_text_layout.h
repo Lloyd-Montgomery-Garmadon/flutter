@@ -84,8 +84,9 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityZeroFontStrut   = 1u << 8,
   kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
   kFlutterVenusV2CapabilityAbsoluteLineHeight = 1u << 10,
+  kFlutterVenusV2CapabilityInlineEdge = 1u << 11,
   kFlutterVenusV2CapabilityTextMiddleParentFont = 1u << 12,
-  kFlutterVenusV2CapabilityKnownMask       = 0x17fdu,
+  kFlutterVenusV2CapabilityKnownMask       = 0x1ffdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -379,7 +380,16 @@ typedef enum FlutterVenusTextLayoutRunKindV2 {
   // Same text fields; opts this run into the paragraph first-line color.
   // Requires CapabilityFirstLineColor and ParagraphFlagFirstLineColor.
   kFlutterVenusV2RunKindFirstLineText = 3,
+  // Requires InlineEdge. Zero-height inline box edge, not an atomic word.
+  kFlutterVenusV2RunKindInlineEdge = 4,
 } FlutterVenusTextLayoutRunKindV2;
+
+// Kind InlineEdge only: text_vertical_align carries the binding side.
+// Start follows the next content; End follows the previous content.
+typedef enum FlutterVenusTextLayoutInlineEdgeSideV2 {
+  kFlutterVenusV2InlineEdgeEnd = 0,
+  kFlutterVenusV2InlineEdgeStart = 1,
+} FlutterVenusTextLayoutInlineEdgeSideV2;
 
 // Venus-only per-run mode; default 0 retains ordinary widget behavior.
 // Preserve changes fragment ranges only. PreserveNoSoftWrap also disables soft
@@ -439,7 +449,8 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   /// kind=Text 专用: 摊成这个 run 的**非替换 inline 包装盒**的 CSS vertical-align,
   /// 0=baseline / 1=top / 3=bottom (对齐行盒) / 6=length (有符号 CSS px)。
   /// 2=middle requires the optional per-run parent-font sidecar entry.
-  /// Other values and nonzero values on nontext runs are invalid.
+  /// InlineEdge 专用: InlineEdgeSideV2 (0=end / 1=start)，不作垂直对齐。
+  /// 其余值与其他非文本 run 上的非 0 均为非法参数。
   uint16_t text_vertical_align;
   uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
   /// 仅 Text + text_vertical_align=6 活动: 有限有符号 CSS px, 正值抬高基线。

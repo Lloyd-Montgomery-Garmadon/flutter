@@ -819,7 +819,9 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
          w->input.strut_height_multiple = -1.0;
        }},
       {"run height mode enum", kFlutterVenusV2InvalidArgument,
-       [](ParagraphWire* w) { w->run.height_mode = 3u; }},
+       [](ParagraphWire* w) {
+         w->run.height_mode = kFlutterVenusV2RunHeightAbsolutePx + 1u;
+       }},
       {"font metrics run with height", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) {
          w->run.height_mode = 1u;
@@ -1203,8 +1205,8 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
             kFlutterVenusV2Ok);
   EXPECT_EQ(kFlutterVenusV2CapabilityTextMiddleParentFont, 1u << 12);
-  EXPECT_EQ(api.capabilities, 0x17f9u);
-  EXPECT_EQ(api.capabilities & (1u << 11), 0u);
+  EXPECT_EQ(api.capabilities, 0x1ff9u);
+  EXPECT_EQ(api.capabilities & (1u << 11), 1u << 11);
   uint32_t slot = 0u;
   uint64_t lease = 0u;
   ASSERT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);
