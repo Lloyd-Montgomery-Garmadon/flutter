@@ -1202,6 +1202,9 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   FlutterVenusTextLayoutApiV2 api{};
   ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
             kFlutterVenusV2Ok);
+  EXPECT_EQ(kFlutterVenusV2CapabilityTextMiddleParentFont, 1u << 12);
+  EXPECT_EQ(api.capabilities, 0x17f9u);
+  EXPECT_EQ(api.capabilities & (1u << 11), 0u);
   uint32_t slot = 0u;
   uint64_t lease = 0u;
   ASSERT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);

@@ -84,8 +84,8 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityZeroFontStrut   = 1u << 8,
   kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
   kFlutterVenusV2CapabilityAbsoluteLineHeight = 1u << 10,
-  kFlutterVenusV2CapabilityTextMiddleParentFont = 1u << 11,
-  kFlutterVenusV2CapabilityKnownMask       = 0xffdu,
+  kFlutterVenusV2CapabilityTextMiddleParentFont = 1u << 12,
+  kFlutterVenusV2CapabilityKnownMask       = 0x17fdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
