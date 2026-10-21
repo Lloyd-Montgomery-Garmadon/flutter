@@ -84,7 +84,8 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityZeroFontStrut   = 1u << 8,
   kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
   kFlutterVenusV2CapabilityAbsoluteLineHeight = 1u << 10,
-  kFlutterVenusV2CapabilityKnownMask       = 0x7fdu,
+  kFlutterVenusV2CapabilityTextMiddleParentFont = 1u << 11,
+  kFlutterVenusV2CapabilityKnownMask       = 0xffdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -437,7 +438,8 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   /// 原 `uint32_t reserved1` 的前半 (偏移 100, 宽 2; 与 reserved0 -> height_mode 同一处置)。
   /// kind=Text 专用: 摊成这个 run 的**非替换 inline 包装盒**的 CSS vertical-align,
   /// 0=baseline / 1=top / 3=bottom (对齐行盒) / 6=length (有符号 CSS px)。
-  /// 其余值与非文本 run 上的非 0 均为非法参数。
+  /// 2=middle requires the optional per-run parent-font sidecar entry.
+  /// Other values and nonzero values on nontext runs are invalid.
   uint16_t text_vertical_align;
   uint16_t whitespace_mode;  ///< Text: WhitespaceModeV2; nontext: Normal
   /// 仅 Text + text_vertical_align=6 活动: 有限有符号 CSS px, 正值抬高基线。
@@ -584,6 +586,38 @@ FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithExclusionsV1(
     uint64_t lease_token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
     const VenusParagraphExclusionsV1* exclusions,
+    FlutterVenusTextLayoutParagraphOutputV2* output);
+
+/// Borrowed parent font for exactly one middle-aligned Text run. Family ranges
+/// address ParagraphInputV2.font_families; no RunV2 field is repurposed.
+typedef struct VenusTextParentFontV1 {
+  uint32_t run_index;
+  uint32_t font_family_offset;
+  uint32_t font_family_length;
+  uint32_t font_weight;
+  uint16_t font_style;
+  uint16_t reserved;
+  double font_size;
+} VenusTextParentFontV1;
+
+typedef struct VenusParagraphParentFontsV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;  ///< 1
+  uint32_t count;
+  uint32_t reserved;
+  const VenusTextParentFontV1* fonts;
+} VenusParagraphParentFontsV1;
+
+/// Optional middle alignment. Exactly one ordered sidecar entry is required per
+/// middle Text run; all other runs have none. Null exclusions means no profile.
+/// Sidecar memory is copied synchronously, never retained in paint artifacts.
+FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithParentFontsV1(
+    uint64_t engine_id,
+    uint32_t slot,
+    uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts,
     FlutterVenusTextLayoutParagraphOutputV2* output);
 
 /* Version-scoped ownership for prelaid Paragraph artifacts. Begin must happen

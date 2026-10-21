@@ -34,7 +34,8 @@ class VenusTextLayoutRegistry final {
       uint64_t lease_token,
       const FlutterVenusTextLayoutParagraphInputV2* input,
       FlutterVenusTextLayoutParagraphOutputV2* output,
-      const VenusParagraphExclusionsV1* exclusions = nullptr);
+      const VenusParagraphExclusionsV1* exclusions = nullptr,
+      const VenusParagraphParentFontsV1* parent_fonts = nullptr);
 
   static int32_t BeginArtifactOwner(uint64_t engine_id,
                                     uint64_t registration_generation,

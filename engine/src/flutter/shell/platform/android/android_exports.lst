@@ -23,6 +23,7 @@
     # 长得跟"引擎不支持段落粒度"一模一样 —— venus 会一声不响地退回单节点那套,
     # 探针里 paragraph_measured/fallbacks 双 0 (2026-08-28 实测踩过)。
     FlutterVenusTextLayoutParagraphV2;
+    FlutterVenusTextLayoutParagraphWithParentFontsV1;
     FlutterVenusTextLayoutArtifactOwnerBeginV1;
     FlutterVenusTextLayoutArtifactOwnerBindSlotV1;
     FlutterVenusTextLayoutArtifactOwnerSealV1;

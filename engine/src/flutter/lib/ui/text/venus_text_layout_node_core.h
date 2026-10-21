@@ -156,6 +156,11 @@ struct ParagraphRunView {
   /// `text_vertical_align`): 0=baseline 1=top 3=bottom。`LayoutParagraphCore`
   /// 把它换算成下面的 `baseline_shift` 后清零, 再排正式那一趟。
   uint16_t text_vertical_align = 0;
+  bool has_parent_font = false;
+  std::string parent_font_family;
+  double parent_font_size = 0.0;
+  int parent_font_weight = 400;
+  bool parent_italic = false;
   /// 以下两个只在引擎内部两趟排版之间传递, 不上线材。
   /// 相对行基线的竖直位移 (向下为正), 转给 Skia `setBaselineShift`。
   double baseline_shift = 0.0;

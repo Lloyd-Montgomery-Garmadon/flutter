@@ -43,7 +43,7 @@ static_assert(kFlutterVenusV2CapabilityTextVerticalAlignLength == 0x40u);
 static_assert(kFlutterVenusV2CapabilitySignedPlaceholderMetrics == 0x80u);
 static_assert(kFlutterVenusV2CapabilityZeroFontStrut == 0x100u);
 static_assert(kFlutterVenusV2CapabilityFirstLineColor == 0x200u);
-static_assert(kFlutterVenusV2CapabilityKnownMask == 0x7fdu);
+static_assert(kFlutterVenusV2CapabilityKnownMask == 0xffdu);
 static_assert(kFlutterVenusV2CapabilityAbsoluteLineHeight == (1u << 10));
 // §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 // 生产必需集(仍在 KnownMask 内, 是可选能力)。
@@ -182,6 +182,11 @@ static_assert(offsetof(FlutterVenusTextLayoutParagraphOutputV2,
                        min_intrinsic_width) == 56u);
 static_assert(offsetof(FlutterVenusTextLayoutParagraphOutputV2,
                        max_intrinsic_width) == 64u);
+static_assert(sizeof(VenusTextParentFontV1) == (kV2Align8 ? 32u : 28u));
+static_assert(offsetof(VenusTextParentFontV1, font_size) == (kV2Align8 ? 24u : 20u));
+static_assert(sizeof(VenusParagraphParentFontsV1) == (kV2Pointer64 ? 24u : 20u));
+static_assert(offsetof(VenusParagraphParentFontsV1, fonts) == 16u);
+static_assert(sizeof(FlutterVenusTextLayoutRunV2) == 112u);
 using ParagraphV2Fn = int32_t (*)(
     uint64_t, uint32_t, uint64_t,
     const FlutterVenusTextLayoutParagraphInputV2*,
@@ -350,7 +355,8 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     uint64_t lease_token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
     FlutterVenusTextLayoutParagraphOutputV2* output,
-    const VenusParagraphExclusionsV1* exclusions) {
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts) {
   if (output == nullptr) {
     return kFlutterVenusV2InvalidArgument;
   }
@@ -380,7 +386,7 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     service->Retain();
   }
   const ScopedServiceReference retained(service);
-  return service->LayoutParagraph(slot, lease_token, input, output, exclusions);
+  return service->LayoutParagraph(slot, lease_token, input, output, exclusions, parent_fonts);
 }
 
 int32_t VenusTextLayoutRegistry::BeginArtifactOwner(
@@ -488,6 +494,18 @@ FlutterVenusTextLayoutParagraphWithExclusionsV1(
   return flutter::VenusTextLayoutRegistry::LayoutParagraph(
       engine_id, slot, lease_token, exclusions == nullptr ? nullptr : input,
       output, exclusions);
+}
+
+extern "C" FLUTTER_EXPORT int32_t
+FlutterVenusTextLayoutParagraphWithParentFontsV1(
+    uint64_t engine_id, uint32_t slot, uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts,
+    FlutterVenusTextLayoutParagraphOutputV2* output) {
+  return flutter::VenusTextLayoutRegistry::LayoutParagraph(
+      engine_id, slot, lease_token, parent_fonts == nullptr ? nullptr : input,
+      output, exclusions, parent_fonts);
 }
 
 extern "C" FLUTTER_EXPORT int32_t

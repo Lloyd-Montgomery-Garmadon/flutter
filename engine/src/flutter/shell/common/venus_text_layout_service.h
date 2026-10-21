@@ -50,7 +50,8 @@ class VenusTextLayoutService final {
       uint64_t token,
       const FlutterVenusTextLayoutParagraphInputV2* input,
       FlutterVenusTextLayoutParagraphOutputV2* output,
-      const VenusParagraphExclusionsV1* exclusions = nullptr);
+      const VenusParagraphExclusionsV1* exclusions = nullptr,
+      const VenusParagraphParentFontsV1* parent_fonts = nullptr);
 
   int32_t BeginArtifactOwner(uint64_t expected_registration_generation,
                              uint64_t producer_generation,

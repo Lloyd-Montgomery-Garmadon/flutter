@@ -149,7 +149,8 @@ bool ValidUtf8(const uint8_t* bytes, uint32_t length) {
 
 int32_t ValidateParagraphInput(
     const FlutterVenusTextLayoutParagraphInputV2& input,
-    FlutterVenusTextLayoutParagraphOutputV2& diagnostic) {
+    FlutterVenusTextLayoutParagraphOutputV2& diagnostic,
+    bool supports_middle = false) {
   if (input.struct_size != kParagraphInputStructSize ||
       input.abi_version != FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2) {
     return kFlutterVenusV2AbiMismatch;
@@ -283,7 +284,8 @@ int32_t ValidateParagraphInput(
         run.kind == kFlutterVenusV2RunKindFirstLineText) {
       // length 复用既有 baseline shift; top / bottom 仍对齐行盒。
       if (run.text_vertical_align != 0u && run.text_vertical_align != 1u &&
-          run.text_vertical_align != 3u && run.text_vertical_align != 6u) {
+          run.text_vertical_align != 3u && run.text_vertical_align != 6u &&
+          !(supports_middle && run.text_vertical_align == 2u)) {
         return kFlutterVenusV2InvalidArgument;
       }
       if (!Utf8RangeFits(input.text, input.text_length, run.text_offset,
@@ -385,7 +387,8 @@ void VenusTextLayoutService::PopulateApi(FlutterVenusTextLayoutApiV2* api) {
                       kFlutterVenusV2CapabilitySignedPlaceholderMetrics |
                       kFlutterVenusV2CapabilityZeroFontStrut |
                       kFlutterVenusV2CapabilityFirstLineColor |
-                      kFlutterVenusV2CapabilityAbsoluteLineHeight;
+                      kFlutterVenusV2CapabilityAbsoluteLineHeight |
+                      kFlutterVenusV2CapabilityTextMiddleParentFont;
   api->max_slots = kFlutterVenusV2MaxSlots;
   // engine_revision was left as the memset zeros, so every consumer that
   // validates it (Venus requires 40 lowercase hex + NUL) rejected the table
@@ -1012,7 +1015,8 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     uint64_t token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
     FlutterVenusTextLayoutParagraphOutputV2* output,
-    const VenusParagraphExclusionsV1* exclusions) {
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts) {
   if (output == nullptr) {
     return kFlutterVenusV2InvalidArgument;
   }
@@ -1024,9 +1028,34 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   if (input == nullptr) {
     return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
   }
-  const int32_t validation = ValidateParagraphInput(*input, *output);
+  const int32_t validation = ValidateParagraphInput(*input, *output, parent_fonts != nullptr);
   if (validation != kFlutterVenusV2Ok) {
     return WriteParagraphStatus(output, validation);
+  }
+  // Sorted one-to-one mapping rejects duplicate/missing parent metadata
+  // before slot acquisition. Ordinary calls keep the original contract.
+  if (parent_fonts != nullptr) {
+    if (parent_fonts->struct_size != sizeof(*parent_fonts) ||
+        parent_fonts->abi_version != 1u)
+      return WriteParagraphStatus(output, kFlutterVenusV2AbiMismatch);
+    if (parent_fonts->reserved != 0u || parent_fonts->count > input->run_count ||
+        ((parent_fonts->count == 0u) != (parent_fonts->fonts == nullptr)))
+      return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
+    uint32_t parent_index = 0u;
+    for (uint32_t i = 0u; i < input->run_count; ++i) {
+      if (input->runs[i].text_vertical_align != 2u) continue;
+      if (parent_index >= parent_fonts->count)
+        return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
+      const auto& font = parent_fonts->fonts[parent_index++];
+      if (font.run_index != i || font.reserved != 0u || font.font_style > 1u ||
+          font.font_weight < 1u || font.font_weight > 1000u ||
+          !std::isfinite(font.font_size) || font.font_size < 0.0 || font.font_size > 4096.0 ||
+          !Utf8RangeFits(input->font_families, input->font_families_length,
+                         font.font_family_offset, font.font_family_length))
+        return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
+    }
+    if (parent_index != parent_fonts->count)
+      return WriteParagraphStatus(output, kFlutterVenusV2InvalidArgument);
   }
   // Borrowed wire memory is validated and copied before acquiring a slot.
   std::vector<venus_text_layout::FloatExclusionView> owned_exclusions;
@@ -1107,6 +1136,7 @@ int32_t VenusTextLayoutService::LayoutParagraph(
   view.has_first_line_color = input->reserved0 != 0u;
   view.first_line_color = input->reserved1;
   view.runs.reserve(input->run_count);
+  uint32_t parent_font_index = 0u;
   for (uint32_t i = 0; i < input->run_count; ++i) {
     const FlutterVenusTextLayoutRunV2& r = input->runs[i];
     venus_text_layout::ParagraphRunView rv;
@@ -1144,6 +1174,15 @@ int32_t VenusTextLayoutService::LayoutParagraph(
     rv.baseline_shift = r.text_vertical_align == 6u
                             ? -r.text_vertical_align_length
                             : 0.0;
+    if (r.text_vertical_align == 2u) {
+      const auto& parent = parent_fonts->fonts[parent_font_index++];
+      rv.has_parent_font = true;
+      rv.parent_font_family = SliceUtf8(input->font_families, input->font_families_length,
+                                       parent.font_family_offset, parent.font_family_length);
+      rv.parent_font_size = parent.font_size;
+      rv.parent_font_weight = static_cast<int>(parent.font_weight);
+      rv.parent_italic = parent.font_style != 0u;
+    }
     view.runs.push_back(std::move(rv));
   }
 
@@ -1214,6 +1253,7 @@ int32_t VenusTextLayoutService::LayoutParagraph(
             engine_id_, registration_generation_, /*snapshot_generation=*/0u,
             slot, std::move(laid_out), artifact_owner_id,
             ParagraphInputChargeBytes(*input) +
+                (parent_fonts == nullptr ? 0u : static_cast<uint64_t>(parent_fonts->count) * sizeof(VenusTextParentFontV1)) +
                 view.exclusions.size() *
                     sizeof(venus_text_layout::FloatExclusionView));
     if (deposit_status != kFlutterVenusV2Ok) {
