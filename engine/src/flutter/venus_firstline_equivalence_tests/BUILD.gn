@@ -1,0 +1,38 @@
+# Test-only integration of unmodified official SkParagraph test assertions.
+declare_args() {
+  venus_skparagraph_test_resources = ""
+}
+assert(venus_skparagraph_test_resources != "",
+       "Set venus_skparagraph_test_resources to the owned official resources directory.")
+_skia = "//flutter/third_party/skia"
+group("default") {
+  testonly = true
+  deps = [ "//:default", ":skparagraph_official_tests" ]
+}
+executable("skparagraph_official_tests") {
+  testonly = true
+  check_includes = false
+  defines = [ "VENUS_INLINE_EDGE_TESTS", "SK_TYPEFACE_FACTORY_FREETYPE", "SK_FREETYPE_MINIMUM_RUNTIME_VERSION_IS_BUILD_VERSION" ]
+  include_dirs = [ _skia, "$venus_skparagraph_test_resources/fontconfig-2.15.0" ]
+  libs = [ "$venus_skparagraph_test_resources/libfontconfig_test.a", "xml2" ]
+  sources = [
+    "official_tests.cc", "runner.cc",
+    "$_skia/src/ports/SkFontHost_FreeType.cpp",
+    "$_skia/src/ports/SkFontHost_FreeType_common.cpp",
+    "$_skia/src/ports/SkFontMgr_fontconfig.cpp",
+    "$_skia/src/ports/SkTypeface_proxy.cpp",
+    "$_skia/src/ports/SkFontMgr_custom.cpp",
+    "$_skia/src/ports/SkFontMgr_custom_directory.cpp",
+    "$_skia/modules/skparagraph/utils/TestFontCollection.cpp",
+    "$_skia/tests/Test.cpp",
+    "$_skia/tools/Resources.cpp",
+    "$_skia/tools/flags/CommandLineFlags.cpp",
+  ]
+  deps = [
+    "//flutter/fml", "//flutter/skia:skia",
+    "//flutter/skia/modules/skparagraph",
+    "//flutter/third_party/freetype2:freetype2",
+    "//flutter/skia/modules/skshaper",
+    "//flutter/skia/modules/skunicode",
+  ]
+}

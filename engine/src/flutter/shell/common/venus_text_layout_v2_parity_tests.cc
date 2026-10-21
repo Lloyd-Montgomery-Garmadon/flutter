@@ -819,7 +819,9 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TrustBoundary) {
          w->input.strut_height_multiple = -1.0;
        }},
       {"run height mode enum", kFlutterVenusV2InvalidArgument,
-       [](ParagraphWire* w) { w->run.height_mode = 3u; }},
+       [](ParagraphWire* w) {
+         w->run.height_mode = kFlutterVenusV2RunHeightAbsolutePx + 1u;
+       }},
       {"font metrics run with height", kFlutterVenusV2InvalidArgument,
        [](ParagraphWire* w) {
          w->run.height_mode = 1u;

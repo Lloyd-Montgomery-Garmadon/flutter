@@ -126,6 +126,7 @@ ItemFailure LayoutTextNodeCore(
 struct ParagraphRunView {
   bool inherits_first_line_color = false;
   bool is_placeholder = false;
+  bool inline_edge = false, inline_edge_start = false;
   /// 硬换行 (`<br>`)。段落里写一个 U+000A —— **由这里写, 不由调用方混进文本**,
   /// 理由见公共头 kFlutterVenusV2RunKindLineBreak 的说明。
   bool is_line_break = false;
