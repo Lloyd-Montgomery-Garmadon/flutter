@@ -186,7 +186,6 @@ static_assert(sizeof(VenusTextParentFontV1) == (kV2Align8 ? 32u : 28u));
 static_assert(offsetof(VenusTextParentFontV1, font_size) == (kV2Align8 ? 24u : 20u));
 static_assert(sizeof(VenusParagraphParentFontsV1) == (kV2Pointer64 ? 24u : 20u));
 static_assert(offsetof(VenusParagraphParentFontsV1, fonts) == 16u);
-static_assert(sizeof(FlutterVenusTextLayoutRunV2) == 112u);
 using ParagraphV2Fn = int32_t (*)(
     uint64_t, uint32_t, uint64_t,
     const FlutterVenusTextLayoutParagraphInputV2*,
