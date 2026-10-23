@@ -51,7 +51,9 @@ repositories {
     google()
     mavenCentral()
     maven {
-        url = uri("$storageUrl/${engineRealm}download.flutter.io")
+        val bundledRepository = java.io.File(flutterRoot, "bin/cache/venus-maven")
+        require(bundledRepository.isDirectory) { "Venus SDK Maven artifacts are missing" }
+        url = uri(bundledRepository)
     }
 }
 

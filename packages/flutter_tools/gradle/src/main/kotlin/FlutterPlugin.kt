@@ -95,7 +95,11 @@ class FlutterPlugin : Plugin<Project> {
             if (FlutterPluginUtils.shouldProjectUseLocalEngine(project)) {
                 project.property(PROP_LOCAL_ENGINE_REPO) as String?
             } else {
-                "$hostedRepository/${engineRealm}download.flutter.io"
+                val bundledRepository = File(flutterRoot!!, "bin/cache/venus-maven")
+                if (!bundledRepository.isDirectory) {
+                    throw GradleException("Venus SDK Maven artifacts are missing; reinstall the complete SDK")
+                }
+                bundledRepository.toURI().toString()
             }
         rootProject.allprojects {
             repositories.maven {
