@@ -403,6 +403,17 @@ int RunTester(const flutter::Settings& settings,
   RunConfiguration run_configuration(std::move(isolate_configuration),
                                      std::move(asset_manager));
 
+  // Venus: opt-in engine id so Dart tests can reach the Venus text layout C API
+  // through PlatformDispatcher.engineId. Default off: without the variable the
+  // tester behaves exactly like upstream (engineId stays null).
+  if (const char* venus_engine_id = std::getenv("VENUS_TESTER_ENGINE_ID")) {
+    char* end = nullptr;
+    const long long id = std::strtoll(venus_engine_id, &end, 10);
+    if (end != venus_engine_id && *end == '\0' && id > 0) {
+      run_configuration.SetEngineId(static_cast<int64_t>(id));
+    }
+  }
+
   // The script completion task observer that will be installed on the UI thread
   // that watched if the engine has any live ports.
   ScriptCompletionTaskObserver completion_observer(
