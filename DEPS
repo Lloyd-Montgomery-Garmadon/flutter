@@ -14,8 +14,11 @@ vars = {
   'dart_git': 'https://dart.googlesource.com',
   'flutter_git': 'https://flutter.googlesource.com',
   'skia_git': 'https://skia.googlesource.com',
+  # Venus：SkParagraph 补丁以 Venus 自己的 Skia fork 为唯一来源（与 flutter 仓库同级）。
+  # 历史补丁线见该仓库 migration/* 标签；venus/main 为最新累积状态。
+  'venus_skia_git': 'file:///Users/cses/workspace/cses/venus/skia',
   'llvm_git': 'https://llvm.googlesource.com',
-  'skia_revision': 'e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465',
+  'skia_revision': 'f0d9932137d5358129fdaab502f198257a307ea8',
 
   # WARNING: DO NOT EDIT canvaskit_cipd_instance MANUALLY
   # See `lib/web_ui/README.md` for how to roll CanvasKit to a new version.
@@ -476,7 +479,7 @@ deps = {
    Var('flutter_git') + '/third_party/freetype2' + '@' + 'be4bcb57914154fc1b9e2900bf8e4b516057e2b8',
 
   'engine/src/flutter/third_party/skia':
-   Var('skia_git') + '/skia.git' + '@' +  Var('skia_revision'),
+   Var('venus_skia_git') + '@' +  Var('skia_revision'),
 
   'engine/src/flutter/third_party/ocmock':
    Var('flutter_git') + '/third_party/ocmock' + '@' +  Var('ocmock_rev'),
