@@ -61,11 +61,18 @@ class FontCollection : public std::enable_shared_from_this<FontCollection> {
   // Construct a Skia text layout FontCollection based on this collection.
   sk_sp<skia::textlayout::FontCollection> CreateSktFontCollection();
 
-  // Creates a facade with independent SkParagraph caches while retaining the
-  // same immutable font-manager snapshot. The clone is safe to use on one
-  // worker thread only.
+  // Creates a facade with its own font-family caches while retaining the same
+  // immutable font-manager snapshot. Its SkParagraph shaping cache is one
+  // instance shared by every clone made from this collection at the same
+  // font epoch (see venus_shared_pcache_). The clone's own caches are safe to
+  // use on one worker thread only; the shared paragraph cache takes its own
+  // lock.
   std::shared_ptr<FontCollection> CloneForVenusWorker(
       uint64_t* out_font_epoch) const;
+
+  // 清空当前字体代的共享段落缓存（页面退出 / 内存压力）。缓存对象保留，条目
+  // 全部释放；节点在锁外析构，正在拷贝命中值的 worker 不受影响。无缓存时无操作。
+  void VenusTrimSharedParagraphCache();
 
   uint64_t GetVenusFontEpoch() const;
 
@@ -81,6 +88,14 @@ class FontCollection : public std::enable_shared_from_this<FontCollection> {
 
   // An equivalent font collection usable by the Skia text shaper library.
   sk_sp<skia::textlayout::FontCollection> skt_collection_;
+
+  // Venus worker 门面共用的 SkParagraph 段落缓存，**一代字体一个实例**：
+  // 按 venus_font_epoch_ 懒建，字体换代后下一次克隆换新实例；旧克隆（仍租用中的
+  // slot）继续写旧实例，新克隆只读写新实例，旧字体的 Run 不可能串进新代。克隆以
+  // shared_ptr 持有，最后一个持有者释放时销毁。UI 线程自己的 skt_collection_
+  // 不参与共享：它的缓存行为与官版逐字节一致，也不会被 worker 的锁阻塞。
+  mutable std::shared_ptr<skia::textlayout::ParagraphCache> venus_shared_pcache_;
+  mutable uint64_t venus_shared_pcache_epoch_ = 0u;
 
   std::vector<sk_sp<SkFontMgr>> GetFontManagerOrder() const;
 

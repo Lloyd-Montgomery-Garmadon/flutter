@@ -76,6 +76,11 @@ class VenusTextLayoutService final {
   // 否则会在别人正在用的对象上做替换。
   int32_t ReloadFonts();
 
+  // 页面退出 / 内存压力：清空 worker 门面共用的段落缓存（见
+  // txt::FontCollection::VenusTrimSharedParagraphCache）。level 0 无操作；
+  // ≥1 清缓存。不动 slot、lease 与 ParagraphStore，与排版并发安全。
+  int32_t TrimCaches(uint32_t level);
+
  private:
   ~VenusTextLayoutService();
 

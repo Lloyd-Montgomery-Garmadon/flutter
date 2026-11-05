@@ -655,6 +655,14 @@ FLUTTER_EXPORT void FlutterVenusTextLayoutArtifactOwnerReleaseV1(
     uint64_t engine_id,
     uint64_t owner_id);
 
+/* 清空 worker 线程共用的 SkParagraph 段落缓存（页面退出、内存压力）。
+   独立导出符号，不进已冻结的 ApiV2：dlsym 取不到 = 这版引擎没有这份缓存，
+   调用方跳过即可。level 0 无操作；>= 1 清缓存并返回 Ok。缓存对象保留，之后
+   照常命中/插入；与正在排版的 worker 并发安全。未注册的 engine_id 返回
+   NotFound，engine_id 为 0 返回 InvalidArgument。 */
+FLUTTER_EXPORT int32_t FlutterVenusTextLayoutTrimCachesV1(uint64_t engine_id,
+                                                          uint32_t level);
+
 FLUTTER_EXPORT int32_t
 FlutterVenusTextLayoutGetApiV2(uint64_t engine_id,
                                uint32_t caller_struct_size,

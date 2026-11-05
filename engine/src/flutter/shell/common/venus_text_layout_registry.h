@@ -47,6 +47,9 @@ class VenusTextLayoutRegistry final {
                                    uint64_t lease_token);
   static int32_t SealArtifactOwner(uint64_t engine_id, uint64_t owner_id);
   static void ReleaseArtifactOwner(uint64_t engine_id, uint64_t owner_id);
+
+  /// 清空该 engine 的 worker 共享段落缓存 (FlutterVenusTextLayoutTrimCachesV1)。
+  static int32_t TrimCaches(uint64_t engine_id, uint32_t level);
 };
 
 }  // namespace flutter

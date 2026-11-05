@@ -1346,6 +1346,19 @@ int32_t VenusTextLayoutService::ReloadFonts() {
   return kFlutterVenusV2Ok;  // (11) reconfigure 在析构时释放
 }
 
+int32_t VenusTextLayoutService::TrimCaches(uint32_t level) {
+  if (level == 0u) {
+    return kFlutterVenusV2Ok;
+  }
+  const std::shared_ptr<txt::FontCollection> base =
+      fonts_ ? fonts_->GetFontCollection() : nullptr;
+  if (base == nullptr) {
+    return kFlutterVenusV2Unavailable;
+  }
+  base->VenusTrimSharedParagraphCache();
+  return kFlutterVenusV2Ok;
+}
+
 void VenusTextLayoutService::Shutdown() {
   std::unique_lock<std::mutex> reconfigure(reconfigure_mutex_);
   {

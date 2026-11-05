@@ -19,6 +19,23 @@
 
 namespace txt {
 
+namespace {
+
+// Venus worker 共享段落缓存的条数上限。
+// 依据（PHK110，8000 行中英混排压测，复用距离直方图）：首屏重复排版的未命中
+// 距离集中在 128–256 次插入之间；256 条时首屏命中 89%、宽度重排 97%，128 条
+// 只有 14% / 47%。旧方案是每个 slot 门面各 128 条、共 8 份，命中按 slot 分散。
+constexpr int kVenusSharedParagraphCacheMaxEntries = 256;
+
+// Venus worker 共享段落缓存的字节预算（估算字节，见
+// ParagraphCache::venusEstimateBytes；每条 ≈ Run 数 × 2272B 固定开销）。
+// 依据（同一压测）：最长行 ≈136KB/条，16MiB ≈ 120 条最长行，盖住一屏多的重复
+// 段落；真机压测末 Native 110MB（无缓存 92 / 旧方案 218），退出后 92MB（无缓存
+// 74 / 旧方案 202），比 32MiB 档少 20MB 而首屏、重排、跳转速度持平。
+constexpr size_t kVenusSharedParagraphCacheByteBudget = 16u * 1024u * 1024u;
+
+}  // namespace
+
 FontCollection::FontCollection() : enable_font_fallback_(true) {}
 
 FontCollection::~FontCollection() {
@@ -153,7 +170,8 @@ FontCollection::CreateSktFontCollection() {
 
 std::shared_ptr<FontCollection> FontCollection::CloneForVenusWorker(
     uint64_t* out_font_epoch) const {
-  std::shared_lock lock(venus_font_mutex_);
+  // 独占而非共享锁：共享段落缓存按字体代懒建，两次并发克隆不能各建一份。
+  std::unique_lock lock(venus_font_mutex_);
   auto clone = std::make_shared<FontCollection>();
   clone->default_font_manager_ = default_font_manager_;
   clone->asset_font_manager_ = asset_font_manager_;
@@ -161,10 +179,32 @@ std::shared_ptr<FontCollection> FontCollection::CloneForVenusWorker(
   clone->test_font_manager_ = test_font_manager_;
   clone->enable_font_fallback_ = enable_font_fallback_;
   clone->venus_font_epoch_ = venus_font_epoch_;
+  if (!venus_shared_pcache_ ||
+      venus_shared_pcache_epoch_ != venus_font_epoch_) {
+    venus_shared_pcache_ = std::make_shared<skia::textlayout::ParagraphCache>();
+    venus_shared_pcache_->venusConfigureShared(
+        kVenusSharedParagraphCacheMaxEntries,
+        kVenusSharedParagraphCacheByteBudget);
+    venus_shared_pcache_epoch_ = venus_font_epoch_;
+  }
+  clone->CreateSktFontCollection()->setVenusSharedParagraphCache(
+      venus_shared_pcache_);
   if (out_font_epoch != nullptr) {
     *out_font_epoch = venus_font_epoch_;
   }
   return clone;
+}
+
+void FontCollection::VenusTrimSharedParagraphCache() {
+  std::shared_ptr<skia::textlayout::ParagraphCache> cache;
+  {
+    std::shared_lock lock(venus_font_mutex_);
+    cache = venus_shared_pcache_;
+  }
+  // 在字体锁外清：reset 自己持缓存锁，条目析构在两把锁之外。
+  if (cache) {
+    cache->reset();
+  }
 }
 
 uint64_t FontCollection::GetVenusFontEpoch() const {

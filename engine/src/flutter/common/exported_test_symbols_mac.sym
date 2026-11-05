@@ -10,3 +10,4 @@ _Spawn
 _LoadLibraryFromKernel
 _LookupEntryPoint
 _ForceShutdownIsolate
+_FlutterVenusTextLayoutTrimCachesV1

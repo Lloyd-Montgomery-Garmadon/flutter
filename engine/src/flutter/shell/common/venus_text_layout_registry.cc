@@ -471,7 +471,33 @@ void VenusTextLayoutRegistry::ReleaseArtifactOwner(uint64_t engine_id,
                                                                       owner_id);
 }
 
+int32_t VenusTextLayoutRegistry::TrimCaches(uint64_t engine_id,
+                                            uint32_t level) {
+  if (engine_id == 0u) {
+    return kFlutterVenusV2InvalidArgument;
+  }
+  VenusTextLayoutService* service = nullptr;
+  {
+    std::scoped_lock lock(g_registry_mutex);
+    const auto found = g_registry.find(engine_id);
+    if (found == g_registry.end() || found->second.service == nullptr) {
+      return kFlutterVenusV2NotFound;
+    }
+    service = found->second.service;
+    service->Retain();
+  }
+  const ScopedServiceReference retained(service);
+  return service->TrimCaches(level);
+}
+
 }  // namespace flutter
+
+// 缓存清理 —— 独立导出符号, 理由同下。符号不存在 = 引擎没有共享段落缓存可清,
+// 调用方 (venus) 跳过即可。
+extern "C" FLUTTER_EXPORT int32_t
+FlutterVenusTextLayoutTrimCachesV1(uint64_t engine_id, uint32_t level) {
+  return flutter::VenusTextLayoutRegistry::TrimCaches(engine_id, level);
+}
 
 // 段落入口 —— **独立导出符号**, 不进 ApiV2 那张已冻结的函数表。
 // 符号不存在 = 引擎不支持段落粒度, 调用方 (venus) 退回单节点那套。
