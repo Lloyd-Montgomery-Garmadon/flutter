@@ -1,3 +1,35 @@
+diff --git a/modules/skparagraph/include/FontCollection.h b/modules/skparagraph/include/FontCollection.h
+index ce297c224f1fc5a9840b8c914cdc237946b64e38..b9d51c3b85a048a37646276f9581bb680ea085d0 100644
+--- a/modules/skparagraph/include/FontCollection.h
++++ b/modules/skparagraph/include/FontCollection.h
+@@ -46,7 +46,17 @@ public:
+     void enableFontFallback();
+     bool fontFallbackEnabled() { return fEnableFontFallback; }
+ 
+-    ParagraphCache* getParagraphCache() { return &fParagraphCache; }
++    ParagraphCache* getParagraphCache() { return fParagraphCachePtr; }
++
++    // Venus: route this facade's paragraph cache to one shared with other
++    // worker facades (see ParagraphCache::venusConfigureShared). nullptr
++    // restores the member cache. The owner of the shared cache decides its
++    // lifetime; clearCaches() keeps resetting the member cache only.
++    void setVenusSharedParagraphCache(std::shared_ptr<ParagraphCache> cache) {
++        fVenusSharedParagraphCache = std::move(cache);
++        fParagraphCachePtr = fVenusSharedParagraphCache ? fVenusSharedParagraphCache.get()
++                                                        : &fParagraphCache;
++    }
+ 
+     void clearCaches();
+ 
+@@ -69,6 +79,8 @@ private:
+ 
+     std::vector<SkString> fDefaultFamilyNames;
+     ParagraphCache fParagraphCache;
++    ParagraphCache* fParagraphCachePtr = &fParagraphCache;
++    std::shared_ptr<ParagraphCache> fVenusSharedParagraphCache;
+ };
+ }  // namespace textlayout
+ }  // namespace skia
 diff --git a/modules/skparagraph/include/Metrics.h b/modules/skparagraph/include/Metrics.h
 index 2c9821ae2832b994b33615a67bd895cb66cba402..dbba25fbe09bc7486934c35b013125a3715eafdb 100644
 --- a/modules/skparagraph/include/Metrics.h
@@ -11,11 +43,121 @@ index 2c9821ae2832b994b33615a67bd895cb66cba402..dbba25fbe09bc7486934c35b013125a3
      // The y position of the baseline for this line from the top of the paragraph.
      double fBaseline = 0.0;
      // Zero indexed line number
+diff --git a/modules/skparagraph/include/Paragraph.h b/modules/skparagraph/include/Paragraph.h
+index a7112c8f39e624cd139f7cde5756fbb8ccfa05ab..ca4c88c3ef11b2661f5ef478076afe6c4e57d048 100644
+--- a/modules/skparagraph/include/Paragraph.h
++++ b/modules/skparagraph/include/Paragraph.h
+@@ -78,6 +78,8 @@ public:
+     virtual void updateTextAlign(TextAlign textAlign) = 0;
+     virtual void updateFontSize(size_t from, size_t to, SkScalar fontSize) = 0;
+     virtual void updateForegroundPaint(size_t from, size_t to, SkPaint paint) = 0;
++    // Venus opt-in UTF-16 paint range; preserves shaped runs and line geometry.
++    virtual void updateForegroundPaintIDForRanges(const std::vector<TextRange>& ranges, size_t paintID) = 0;
+     virtual void updateBackgroundPaint(size_t from, size_t to, SkPaint paint) = 0;
+ 
+     enum VisitorFlags {
+diff --git a/modules/skparagraph/include/ParagraphCache.h b/modules/skparagraph/include/ParagraphCache.h
+index cc324425ab98efd4d6e74394d3113be23e88506f..eb10a59a40a95640fcf162d30175258eb09c3892 100644
+--- a/modules/skparagraph/include/ParagraphCache.h
++++ b/modules/skparagraph/include/ParagraphCache.h
+@@ -3,6 +3,8 @@
+ #define ParagraphCache_DEFINED
+ 
+ #include "include/private/base/SkMutex.h"
++#include <cstddef>
++#include <cstdint>
+ #include <functional>  // std::function
+ 
+ #define PARAGRAPH_CACHE_STATS
+@@ -11,6 +13,8 @@ namespace skia {
+ namespace textlayout {
+ 
+ class ParagraphImpl;
++class ParagraphCacheValue;
++struct VenusParagraphNode;
+ 
+ class ParagraphCache {
+ public:
+@@ -30,6 +34,35 @@ public:
+     void turnOn(bool value);
+     int count();
+ 
++    // ---- Venus: one cache shared by several worker-thread facades -----------
++    // Switches this instance to the shared path. Call once, before the first
++    // find/update. Differences from the single-thread path above:
++    //   * key and value are built outside the lock, a hit copies the value
++    //     after the lock is released (the value is held by a shared_ptr, so an
++    //     eviction only drops a reference and never frees under a reader);
++    //   * inserts evict the LRU tail by entry count and by an estimated byte
++    //     budget (venusEstimateBytes), O(1) each, with the evicted nodes
++    //     destroyed after the lock is released;
++    //   * the key is stored once, inside the value.
++    // byteBudget == 0 keeps the count cap only. reset() empties it (nodes are
++    // again destroyed outside the lock).
++    void venusConfigureShared(int maxEntries, size_t byteBudget);
++    struct VenusStats {
++        bool shared = false;
++        int maxEntries = 0;
++        int count = 0;
++        uint64_t byteBudget = 0;
++        uint64_t requests = 0;      // find calls
++        uint64_t hits = 0;
++        uint64_t misses = 0;
++        uint64_t editingSkips = 0;  // isPossiblyTextEditing refused the insert
++        uint64_t inserts = 0;
++        uint64_t evictedCount = 0;
++        uint64_t evictedBytes = 0;
++        uint64_t bytes = 0;         // estimated bytes currently retained
++    };
++    void venusGetStats(VenusStats* out);
++
+     bool isPossiblyTextEditing(ParagraphImpl* paragraph);
+ 
+  private:
+@@ -37,6 +70,14 @@ public:
+     struct Entry;
+     void updateFrom(const ParagraphImpl* paragraph, Entry* entry);
+     void updateTo(ParagraphImpl* paragraph, const Entry* entry);
++    bool venusFindParagraph(ParagraphImpl* paragraph);
++    bool venusUpdateParagraph(ParagraphImpl* paragraph);
++    void venusReset();
++    // Unlinks the LRU tail and pushes it onto *detached (singly linked through
++    // the node); the caller deletes the chain after releasing the lock.
++    void venusDetachTailLocked(VenusParagraphNode** detached);
++    static size_t venusEstimateBytes(const ParagraphCacheValue& value);
++    static void venusCopyTo(ParagraphImpl* paragraph, const ParagraphCacheValue& value);
+ 
+      mutable SkMutex fParagraphMutex;
+      std::function<void(ParagraphImpl* impl, const char*, bool)> fChecker;
 diff --git a/modules/skparagraph/include/ParagraphStyle.h b/modules/skparagraph/include/ParagraphStyle.h
-index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..15a8495c73868326f87c14f10dc63bcf3fff0a80 100644
+index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..6e092f62dfee285d28afd22e8138b0b66c5b7b0e 100644
 --- a/modules/skparagraph/include/ParagraphStyle.h
 +++ b/modules/skparagraph/include/ParagraphStyle.h
-@@ -75,18 +75,29 @@ private:
+@@ -43,6 +43,9 @@ struct StrutStyle {
+     void setForceStrutHeight(bool v) { fForceHeight = v; }
+ 
+     bool getHeightOverride() const { return fHeightOverride; }
++    // Venus-only: interpret height as CSS px, default disabled.
++    bool getVenusAbsoluteHeight() const { return fVenusAbsoluteHeight; }
++    void setVenusAbsoluteHeight(bool value) { fVenusAbsoluteHeight = value; }
+     void setHeightOverride(bool v) { fHeightOverride = v; }
+ 
+     void setHalfLeading(bool halfLeading) { fHalfLeading = halfLeading; }
+@@ -51,6 +54,7 @@ struct StrutStyle {
+     bool operator==(const StrutStyle& rhs) const {
+         return this->fEnabled == rhs.fEnabled &&
+                this->fHeightOverride == rhs.fHeightOverride &&
++               this->fVenusAbsoluteHeight == rhs.fVenusAbsoluteHeight &&
+                this->fForceHeight == rhs.fForceHeight &&
+                this->fHalfLeading == rhs.fHalfLeading &&
+                nearlyEqual(this->fLeading, rhs.fLeading) &&
+@@ -70,23 +74,36 @@ private:
+     bool fForceHeight;
+     bool fEnabled;
+     bool fHeightOverride;
++    bool fVenusAbsoluteHeight = false;
+     // true: half leading.
+     // false: scale ascent/descent with fHeight.
      bool fHalfLeading;
  };
  
@@ -45,11 +187,12 @@ index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..15a8495c73868326f87c14f10dc63bcf
 -
 +               this->fFakeMissingFontStyles == rhs.fFakeMissingFontStyles &&
 +               this->fHonorZeroHeightOverride == rhs.fHonorZeroHeightOverride &&
++               this->fVenusWordBoundaryWrap == rhs.fVenusWordBoundaryWrap &&
 +               this->fVenusFloatExclusions == rhs.fVenusFloatExclusions;
      }
  
      const StrutStyle& getStrutStyle() const { return fStrutStyle; }
-@@ -135,7 +146,23 @@ struct ParagraphStyle {
+@@ -135,7 +152,28 @@ struct ParagraphStyle {
      bool getLetterSpacingByCSSSpec() const { return fLetterSpacingByCSSSpec; }
      void setLetterSpacingByCSSSpec(bool value) { fLetterSpacingByCSSSpec = value; }
  
@@ -61,6 +204,10 @@ index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..15a8495c73868326f87c14f10dc63bcf
 +    bool getHonorZeroHeightOverride() const { return fHonorZeroHeightOverride; }
 +    void setHonorZeroHeightOverride(bool value) { fHonorZeroHeightOverride = value; }
 +
++    // CSS-only: keep Unicode soft/hard breaks, suppress emergency word splitting.
++    bool getVenusWordBoundaryWrap() const { return fVenusWordBoundaryWrap; }
++    void setVenusWordBoundaryWrap(bool value) { fVenusWordBoundaryWrap = value; }
++
 +    const std::vector<VenusFloatExclusion>& getVenusFloatExclusions() const {
 +        return fVenusFloatExclusions;
 +    }
@@ -69,11 +216,12 @@ index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..15a8495c73868326f87c14f10dc63bcf
 +    }
 +
  private:
++    bool fVenusWordBoundaryWrap = false;
 +    std::vector<VenusFloatExclusion> fVenusFloatExclusions;
      StrutStyle fStrutStyle;
      TextStyle fDefaultTextStyle;
      TextAlign fTextAlign;
-@@ -150,6 +177,7 @@ private:
+@@ -150,6 +188,7 @@ private:
      bool fFakeMissingFontStyles;
      bool fApplyRoundingHack = true;
      bool fLetterSpacingByCSSSpec = false;
@@ -82,10 +230,29 @@ index 0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57..15a8495c73868326f87c14f10dc63bcf
  }  // namespace textlayout
  }  // namespace skia
 diff --git a/modules/skparagraph/include/TextStyle.h b/modules/skparagraph/include/TextStyle.h
-index 9a65834b8e9c84dae4e9a919787b122abdb54b18..6774f11ddd729591abb54dee454451eb5789b308 100644
+index 9a65834b8e9c84dae4e9a919787b122abdb54b18..4f53f4bd6448278ba394282ac1feabfcfa464fa1 100644
 --- a/modules/skparagraph/include/TextStyle.h
 +++ b/modules/skparagraph/include/TextStyle.h
-@@ -271,6 +271,9 @@ public:
+@@ -135,6 +135,8 @@ struct PlaceholderStyle {
+ 
+     SkScalar fWidth = 0;
+     SkScalar fHeight = 0;
++    // Venus-only inline edges are transparent to Unicode line breaking.
++    bool fVenusInlineEdge = false, fVenusInlineEdgeStart = false;
+     PlaceholderAlignment fAlignment = PlaceholderAlignment::kBaseline;
+     TextBaseline fBaseline = TextBaseline::kAlphabetic;
+     // Distance from the top edge of the rect to the baseline position. This
+@@ -262,6 +264,9 @@ public:
+ 
+     void setHeightOverride(bool heightOverride) { fHeightOverride = heightOverride; }
+     bool getHeightOverride() const { return fHeightOverride; }
++    // Venus-only: interpret height as CSS px, default disabled.
++    bool getVenusAbsoluteHeight() const { return fVenusAbsoluteHeight; }
++    void setVenusAbsoluteHeight(bool value) { fVenusAbsoluteHeight = value; }
+ 
+     void setHalfLeading(bool halfLeading) { fHalfLeading = halfLeading; }
+     bool getHalfLeading() const { return fHalfLeading; }
+@@ -271,6 +276,9 @@ public:
  
      void setWordSpacing(SkScalar wordSpacing) { fWordSpacing = wordSpacing; }
      SkScalar getWordSpacing() const { return fWordSpacing; }
@@ -95,7 +262,15 @@ index 9a65834b8e9c84dae4e9a919787b122abdb54b18..6774f11ddd729591abb54dee454451eb
  
      SkTypeface* getTypeface() const { return fTypeface.get(); }
      sk_sp<SkTypeface> refTypeface() const { return fTypeface; }
-@@ -326,6 +329,7 @@ private:
+@@ -319,6 +327,7 @@ private:
+     SkFontHinting fHinting = SkFontHinting::kSlight;
+     SkScalar fHeight = 1.0;
+     bool fHeightOverride = false;
++    bool fVenusAbsoluteHeight = false;
+     SkScalar fBaselineShift = 0.0f;
+     // true: half leading.
+     // false: scale ascent/descent with fHeight.
+@@ -326,6 +335,7 @@ private:
      SkString fLocale = {};
      SkScalar fLetterSpacing = 0.0;
      SkScalar fWordSpacing = 0.0;
@@ -104,7 +279,7 @@ index 9a65834b8e9c84dae4e9a919787b122abdb54b18..6774f11ddd729591abb54dee454451eb
      TextBaseline fTextBaseline = TextBaseline::kAlphabetic;
  
 diff --git a/modules/skparagraph/src/OneLineShaper.cpp b/modules/skparagraph/src/OneLineShaper.cpp
-index d36dfd86cb2ecd82883118d7717f0f9de1b776b3..e168dfca4013bdc020fdbdba6d816395980f802f 100644
+index d36dfd86cb2ecd82883118d7717f0f9de1b776b3..26c1cf0521a4fa88db1ba2e8bfaed7379440e98a 100644
 --- a/modules/skparagraph/src/OneLineShaper.cpp
 +++ b/modules/skparagraph/src/OneLineShaper.cpp
 @@ -215,7 +215,8 @@ void OneLineShaper::finish(const Block& block, SkScalar height, SkScalar& advanc
@@ -113,7 +288,7 @@ index d36dfd86cb2ecd82883118d7717f0f9de1b776b3..e168dfca4013bdc020fdbdba6d816395
                      this->fParagraph->fRuns.size(),
 -                    advanceX
 +                    advanceX,
-+                    fHonorZeroHeight
++                    fHonorZeroHeight, block.fStyle.getVenusAbsoluteHeight()
                  );
          auto piece = &this->fParagraph->fRuns.back();
  
@@ -133,56 +308,147 @@ index d36dfd86cb2ecd82883118d7717f0f9de1b776b3..e168dfca4013bdc020fdbdba6d816395
                  combinedBlock.add(blockRange);
                  addFeatures(block);
                  continue;
-@@ -650,6 +658,8 @@ bool OneLineShaper::shape() {
+@@ -650,6 +658,9 @@ bool OneLineShaper::shape() {
  
              // Start from the beginning (hoping that it's a simple case one block - one run)
              fHeight = block.fStyle.getHeightOverride() ? block.fStyle.getHeight() : 0;
++            fVenusAbsoluteHeight = block.fStyle.getVenusAbsoluteHeight();
 +            fHonorZeroHeight = block.fStyle.getHeightOverride() &&
 +                               fParagraph->paragraphStyle().getHonorZeroHeightOverride();
              fUseHalfLeading = block.fStyle.getHalfLeading();
              fBaselineShift = block.fStyle.getBaselineShift();
              fAdvance = SkVector::Make(advanceX, 0);
 diff --git a/modules/skparagraph/src/OneLineShaper.h b/modules/skparagraph/src/OneLineShaper.h
-index e33f9d1414bc0694707e13b748b732adb4647628..3bed8c1741700384d582bd8853470ea0a9960aa9 100644
+index e33f9d1414bc0694707e13b748b732adb4647628..3bba22c2163757c7dcee94b6955aaf398d1f4309 100644
 --- a/modules/skparagraph/src/OneLineShaper.h
 +++ b/modules/skparagraph/src/OneLineShaper.h
-@@ -18,6 +18,7 @@ public:
+@@ -18,6 +18,8 @@ public:
      explicit OneLineShaper(ParagraphImpl* paragraph)
          : fParagraph(paragraph)
          , fHeight(0.0f)
 +        , fHonorZeroHeight(false)
++        , fVenusAbsoluteHeight(false)
          , fUseHalfLeading(false)
          , fBaselineShift(0.0f)
          , fAdvance(SkPoint::Make(0.0f, 0.0f))
-@@ -96,7 +97,8 @@ private:
+@@ -96,7 +98,8 @@ private:
                                             fUseHalfLeading,
                                             fBaselineShift,
                                             ++fUniqueRunId,
 -                                           fAdvance.fX);
 +                                           fAdvance.fX,
-+                                           fHonorZeroHeight);
++                                           fHonorZeroHeight, fVenusAbsoluteHeight);
          return fCurrentRun->newRunBuffer();
      }
  
-@@ -115,6 +117,7 @@ private:
+@@ -115,6 +118,8 @@ private:
      ParagraphImpl* fParagraph;
      TextRange fCurrentText;
      SkScalar fHeight;
 +    bool fHonorZeroHeight;
++    bool fVenusAbsoluteHeight;
      bool fUseHalfLeading;
      SkScalar fBaselineShift;
      SkVector fAdvance;
 diff --git a/modules/skparagraph/src/ParagraphCache.cpp b/modules/skparagraph/src/ParagraphCache.cpp
-index e5862e1169b92ac2097ff02561bb374d7e153fdb..8a3f3c9a84352a2bc395df1ed069832328a8e46e 100644
+index e5862e1169b92ac2097ff02561bb374d7e153fdb..697ecab88c0638db40535f0113140de69cc56844 100644
 --- a/modules/skparagraph/src/ParagraphCache.cpp
 +++ b/modules/skparagraph/src/ParagraphCache.cpp
-@@ -1,4 +1,5 @@
+@@ -1,11 +1,14 @@
  // Copyright 2019 Google LLC
 +#include <functional>
  #include <memory>
  
  #include "modules/skparagraph/include/FontArguments.h"
-@@ -167,6 +168,9 @@ uint32_t ParagraphCacheKey::computeHash() const {
+ #include "modules/skparagraph/include/ParagraphCache.h"
+ #include "modules/skparagraph/src/ParagraphImpl.h"
+ #include "src/base/SkFloatBits.h"
++#include "src/base/SkTInternalLList.h"
+ #include "src/core/SkLRUCache.h"
++#include "src/core/SkTHash.h"
+ 
+ using namespace skia_private;
+ 
+@@ -15,9 +18,17 @@ namespace textlayout {
+ class ParagraphCacheKey;
+ class ParagraphCacheValue;
+ 
++// Venus shared mode keeps its own LRU (hash table + intrusive list) instead of
++// SkLRUCache: O(1) tail access, the key stored once (inside the value), and a
++// node that can be unlinked under the lock and destroyed after it.
++struct VenusParagraphTraits {
++    static const ParagraphCacheKey& GetKey(VenusParagraphNode* node);
++    static uint32_t Hash(const ParagraphCacheKey& key);
++};
++
+ struct ParagraphCache::Cache {
+-    Cache()
+-        : fLRUCacheMap(kMaxEntries)
++    explicit Cache(int maxEntries = kMaxEntries)
++        : fLRUCacheMap(maxEntries)
+         , fCacheIsOn(true)
+         , fLastCachedValue(nullptr)
+ #ifdef PARAGRAPH_CACHE_STATS
+@@ -51,6 +62,16 @@ struct ParagraphCache::Cache {
+     int fCacheMisses;
+     int fHashMisses; // cache hit but hash table missed
+ #endif
++
++    // ---- Venus shared mode; unused unless venusConfigureShared ran.
++    ~Cache();  // frees the venus nodes; nothing to do for a single-thread cache
++    bool fVenusShared = false;
++    int fVenusMaxEntries = kMaxEntries;
++    size_t fVenusByteBudget = 0;
++    size_t fVenusBytes = 0;
++    ParagraphCache::VenusStats fVenusStats;
++    THashTable<VenusParagraphNode*, ParagraphCacheKey, VenusParagraphTraits> fVenusMap;
++    SkTInternalLList<VenusParagraphNode> fVenusLRU;  // head = MRU, tail = LRU
+ };
+ 
+ namespace {
+@@ -97,6 +118,13 @@ public:
+ 
+     const SkString& text() const { return fText; }
+ 
++    // Venus: estimated heap footprint of one key (estimate, not measured).
++    size_t venusBytes() const {
++        return sizeof(ParagraphCacheKey) + fText.size() +
++               fPlaceholders.size() * sizeof(Placeholder) +
++               fTextStyles.size() * sizeof(Block);
++    }
++
+ private:
+     static uint32_t mix(uint32_t hash, uint32_t data);
+     uint32_t computeHash() const;
+@@ -138,6 +166,27 @@ public:
+     TextIndex fTrailingSpaces;
+ };
+ 
++struct VenusParagraphNode {
++    VenusParagraphNode(std::shared_ptr<ParagraphCacheValue> value, size_t bytes)
++        : fValue(std::move(value)), fBytes(bytes) {}
++    std::shared_ptr<ParagraphCacheValue> fValue;  // owns the key: fValue->fKey
++    size_t fBytes;
++    VenusParagraphNode* fDetachedNext = nullptr;  // chain of unlinked nodes awaiting delete
++    SK_DECLARE_INTERNAL_LLIST_INTERFACE(VenusParagraphNode);
++};
++
++const ParagraphCacheKey& VenusParagraphTraits::GetKey(VenusParagraphNode* node) {
++    return node->fValue->fKey;
++}
++uint32_t VenusParagraphTraits::Hash(const ParagraphCacheKey& key) { return key.hash(); }
++
++ParagraphCache::Cache::~Cache() {
++    for (VenusParagraphNode* node = fVenusLRU.head(); node; node = fVenusLRU.head()) {
++        fVenusLRU.remove(node);
++        delete node;
++    }
++}
++
+ uint32_t ParagraphCacheKey::mix(uint32_t hash, uint32_t data) {
+     hash += data;
+     hash += (hash << 10);
+@@ -167,6 +216,9 @@ uint32_t ParagraphCacheKey::computeHash() const {
          }
          hash = mix(hash, SkGoodHash()(relax(ts.fStyle.getLetterSpacing())));
          hash = mix(hash, SkGoodHash()(relax(ts.fStyle.getWordSpacing())));
@@ -192,7 +458,7 @@ index e5862e1169b92ac2097ff02561bb374d7e153fdb..8a3f3c9a84352a2bc395df1ed0698323
          hash = mix(hash, SkGoodHash()(ts.fStyle.getLocale()));
          hash = mix(hash, SkGoodHash()(relax(ts.fStyle.getHeight())));
          hash = mix(hash, SkGoodHash()(relax(ts.fStyle.getBaselineShift())));
-@@ -186,6 +190,22 @@ uint32_t ParagraphCacheKey::computeHash() const {
+@@ -186,6 +238,22 @@ uint32_t ParagraphCacheKey::computeHash() const {
      hash = mix(hash, SkGoodHash()(relax(fParagraphStyle.getHeight())));
      hash = mix(hash, SkGoodHash()(fParagraphStyle.getTextDirection()));
      hash = mix(hash, SkGoodHash()(fParagraphStyle.getReplaceTabCharacters() ? 1 : 0));
@@ -215,7 +481,7 @@ index e5862e1169b92ac2097ff02561bb374d7e153fdb..8a3f3c9a84352a2bc395df1ed0698323
  
      auto& strutStyle = fParagraphStyle.getStrutStyle();
      if (strutStyle.getStrutEnabled()) {
-@@ -222,6 +242,11 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
+@@ -222,6 +290,11 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
          return false;
      }
  
@@ -227,7 +493,7 @@ index e5862e1169b92ac2097ff02561bb374d7e153fdb..8a3f3c9a84352a2bc395df1ed0698323
      // There is no need to compare default paragraph styles - they are included into fTextStyles
      if (!exactlyEqual(fParagraphStyle.getHeight(), other.fParagraphStyle.getHeight())) {
          return false;
-@@ -238,15 +263,28 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
+@@ -238,15 +311,28 @@ bool ParagraphCacheKey::operator==(const ParagraphCacheKey& other) const {
          return false;
      }
  
@@ -256,8 +522,234 @@ index e5862e1169b92ac2097ff02561bb374d7e153fdb..8a3f3c9a84352a2bc395df1ed0698323
          if (tsa.fRange.width() != tsb.fRange.width()) {
              return false;
          }
+@@ -290,6 +376,195 @@ ParagraphCache::~ParagraphCache() { }
+ void ParagraphCache::turnOn(bool value) { fCache->fCacheIsOn = value; }
+ int ParagraphCache::count() { return fCache->fLRUCacheMap.count(); }
+ 
++// ---------------------------------------------------------------------------
++// Venus shared mode. Everything below is only reached when
++// venusConfigureShared() ran on this cache; findParagraph/updateParagraph/reset
++// dispatch here on their first line and are otherwise the single-thread code.
++// ---------------------------------------------------------------------------
++void ParagraphCache::venusConfigureShared(int maxEntries, size_t byteBudget) {
++    SkAutoMutexExclusive lock(fParagraphMutex);
++    fCache = std::make_unique<Cache>(maxEntries > 0 ? maxEntries : Cache::kMaxEntries);
++    fCache->fVenusShared = true;
++    fCache->fVenusMaxEntries = maxEntries > 0 ? maxEntries : Cache::kMaxEntries;
++    fCache->fVenusByteBudget = byteBudget;
++}
++
++void ParagraphCache::venusGetStats(VenusStats* out) {
++    SkAutoMutexExclusive lock(fParagraphMutex);
++    const Cache& c = *fCache;
++    *out = c.fVenusStats;
++    out->shared = c.fVenusShared;
++    out->maxEntries = c.fVenusShared ? c.fVenusMaxEntries : Cache::kMaxEntries;
++    out->byteBudget = c.fVenusByteBudget;
++    out->count = c.fVenusShared ? c.fVenusMap.count() : c.fLRUCacheMap.count();
++    out->bytes = c.fVenusBytes;
++}
++
++// Estimate only. Dominated by per-run fixed costs: sizeof(Run) carries the
++// inline STArray<64> justification buffer and GlyphData carries four inline
++// STArray<64> glyph buffers, both mostly empty for short mixed-script runs
++// (800 + 1472 bytes per run on LP64).
++size_t ParagraphCache::venusEstimateBytes(const ParagraphCacheValue& value) {
++    size_t bytes = sizeof(ParagraphCacheValue) + value.fKey.venusBytes();
++    constexpr size_t kPerGlyph = sizeof(SkGlyphID) + 2 * sizeof(SkPoint) + sizeof(uint32_t);
++    for (const Run& run : value.fRuns) {
++        bytes += sizeof(Run) + sizeof(Run::GlyphData) + run.fLanguage.size();
++        const size_t glyphs = run.size() + 1;  // positions/offsets/clusterIndexes carry one trailing slot
++        if (glyphs > 64) {
++            bytes += (glyphs - 64) * kPerGlyph;
++        }
++    }
++    bytes += value.fClusters.size() * sizeof(Cluster);
++    bytes += value.fClustersIndexFromCodeUnit.size() * sizeof(size_t);
++    bytes += value.fCodeUnitProperties.size() * sizeof(SkUnicode::CodeUnitFlags);
++    bytes += value.fWords.size() * sizeof(size_t);
++    bytes += value.fBidiRegions.size() * sizeof(SkUnicode::BidiRegion);
++    return bytes;
++}
++
++// Same as updateTo, from a value instead of an entry. Runs share GlyphData by
++// shared_ptr; it is read-only after shaping (the only writers, applySpacing*
++// and Run::shift/extend, run inside shapeTextIntoEndlessLine before the
++// insert), so copies held by different paragraphs and threads never race.
++void ParagraphCache::venusCopyTo(ParagraphImpl* paragraph, const ParagraphCacheValue& value) {
++    paragraph->fRuns.clear();
++    paragraph->fRuns = value.fRuns;
++    paragraph->fClusters = value.fClusters;
++    paragraph->fClustersIndexFromCodeUnit = value.fClustersIndexFromCodeUnit;
++    paragraph->fCodeUnitProperties = value.fCodeUnitProperties;
++    paragraph->fWords = value.fWords;
++    paragraph->fBidiRegions = value.fBidiRegions;
++    paragraph->fHasLineBreaks = value.fHasLineBreaks;
++    paragraph->fHasWhitespacesInside = value.fHasWhitespacesInside;
++    paragraph->fTrailingSpaces = value.fTrailingSpaces;
++    for (auto& run : paragraph->fRuns) {
++        run.setOwner(paragraph);
++    }
++    for (auto& cluster : paragraph->fClusters) {
++        cluster.setOwner(paragraph);
++    }
++}
++
++void ParagraphCache::venusDetachTailLocked(VenusParagraphNode** detached) {
++    Cache& c = *fCache;
++    VenusParagraphNode* tail = c.fVenusLRU.tail();
++    if (tail == nullptr) {
++        return;
++    }
++    c.fVenusMap.remove(tail->fValue->fKey);
++    c.fVenusLRU.remove(tail);
++    c.fVenusBytes -= tail->fBytes;
++    c.fVenusStats.evictedCount++;
++    c.fVenusStats.evictedBytes += tail->fBytes;
++    tail->fDetachedNext = *detached;
++    *detached = tail;
++}
++
++namespace {
++// Deletes a chain of detached nodes. Runs outside the lock: a worker that
++// copied the value out of a hit still owns a shared_ptr to it, so the value
++// dies on whichever side drops the last reference.
++void venusDeleteDetached(VenusParagraphNode* detached) {
++    while (detached != nullptr) {
++        VenusParagraphNode* next = detached->fDetachedNext;
++        delete detached;
++        detached = next;
++    }
++}
++}  // namespace
++
++bool ParagraphCache::venusFindParagraph(ParagraphImpl* paragraph) {
++    // The key only reads this worker's own paragraph: build it before the lock.
++    const ParagraphCacheKey key(paragraph);
++    std::shared_ptr<ParagraphCacheValue> value;
++    {
++        SkAutoMutexExclusive lock(fParagraphMutex);
++        Cache& c = *fCache;
++        c.fVenusStats.requests++;
++        VenusParagraphNode** slot = c.fVenusMap.find(key);
++        if (slot) {
++            VenusParagraphNode* node = *slot;
++            value = node->fValue;
++            if (node != c.fVenusLRU.head()) {
++                c.fVenusLRU.remove(node);
++                c.fVenusLRU.addToHead(node);
++            }
++            c.fVenusStats.hits++;
++        } else {
++            c.fVenusStats.misses++;
++        }
++    }
++    if (!value) {
++        fChecker(paragraph, "missingParagraph", true);
++        return false;
++    }
++    venusCopyTo(paragraph, *value);  // outside the lock; the shared_ptr keeps the value alive
++    fChecker(paragraph, "foundParagraph", true);
++    return true;
++}
++
++bool ParagraphCache::venusUpdateParagraph(ParagraphImpl* paragraph) {
++    // The value copy (runs, clusters, ~100KB for long rows) only reads this
++    // worker's paragraph: build it before the lock. The key moves into the
++    // value and is stored nowhere else.
++    ParagraphCacheKey key(paragraph);
++    auto value = std::make_shared<ParagraphCacheValue>(std::move(key), paragraph);
++    const size_t bytes = venusEstimateBytes(*value);
++    VenusParagraphNode* detached = nullptr;
++    bool inserted = false;
++    {
++        SkAutoMutexExclusive lock(fParagraphMutex);
++        Cache& c = *fCache;
++        if (c.fVenusMap.find(value->fKey) != nullptr) {
++            return false;  // another worker shaped the same paragraph meanwhile
++        }
++        if (isPossiblyTextEditing(paragraph)) {
++            c.fVenusStats.editingSkips++;
++            return false;
++        }
++        // Evict before inserting so count and byte totals stay exact. A single
++        // entry larger than the whole budget still goes in and leaves on the
++        // next insert. Nodes are only unlinked here; deleted after the lock.
++        while (c.fVenusMap.count() > 0 &&
++               (c.fVenusMap.count() >= c.fVenusMaxEntries ||
++                (c.fVenusByteBudget > 0 && c.fVenusBytes + bytes > c.fVenusByteBudget))) {
++            venusDetachTailLocked(&detached);
++        }
++        ParagraphCacheValue* raw = value.get();
++        VenusParagraphNode* node = new VenusParagraphNode(std::move(value), bytes);
++        c.fVenusMap.set(node);
++        c.fVenusLRU.addToHead(node);
++        c.fVenusBytes += bytes;
++        c.fVenusStats.inserts++;
++        // Reassigned before the lock is released: the detached chain may hold
++        // the previous value, and this pointer must never outlive its target.
++        c.fLastCachedValue = raw;
++        inserted = true;
++    }
++    venusDeleteDetached(detached);
++    if (inserted) {
++        fChecker(paragraph, "addedParagraph", true);
++    }
++    return inserted;
++}
++
++void ParagraphCache::venusReset() {
++    VenusParagraphNode* detached = nullptr;
++    {
++        SkAutoMutexExclusive lock(fParagraphMutex);
++        Cache& c = *fCache;
++        for (VenusParagraphNode* node = c.fVenusLRU.head(); node; node = c.fVenusLRU.head()) {
++            c.fVenusLRU.remove(node);
++            node->fDetachedNext = detached;
++            detached = node;
++        }
++        c.fVenusMap.reset();
++        c.fVenusBytes = 0;
++        c.fLastCachedValue = nullptr;
++    }
++    venusDeleteDetached(detached);
++}
++
+ void ParagraphCache::updateTo(ParagraphImpl* paragraph, const Entry* entry) {
+ 
+     paragraph->fRuns.clear();
+@@ -319,6 +594,9 @@ void ParagraphCache::abandon() {
+ }
+ 
+ void ParagraphCache::reset() {
++    if (fCache->fVenusShared) {
++        return this->venusReset();
++    }
+     SkAutoMutexExclusive lock(fParagraphMutex);
+ #ifdef PARAGRAPH_CACHE_STATS
+     fCache->fTotalRequests = 0;
+@@ -330,6 +608,9 @@ void ParagraphCache::reset() {
+ }
+ 
+ bool ParagraphCache::findParagraph(ParagraphImpl* paragraph) {
++    if (fCache->fVenusShared) {
++        return this->venusFindParagraph(paragraph);
++    }
+     if (!fCache->fCacheIsOn) {
+         return false;
+     }
+@@ -354,6 +635,9 @@ bool ParagraphCache::findParagraph(ParagraphImpl* paragraph) {
+ }
+ 
+ bool ParagraphCache::updateParagraph(ParagraphImpl* paragraph) {
++    if (fCache->fVenusShared) {
++        return this->venusUpdateParagraph(paragraph);
++    }
+     if (!fCache->fCacheIsOn) {
+         return false;
+     }
 diff --git a/modules/skparagraph/src/ParagraphImpl.cpp b/modules/skparagraph/src/ParagraphImpl.cpp
-index 9ea8267545ac92f0c918e74dbaef80ab1e559249..e5bec56148dc8daf31a9c19b03b2d5c0f905c268 100644
+index 9ea8267545ac92f0c918e74dbaef80ab1e559249..f3df6564f915ff25d84f4ba451e8167b316e5317 100644
 --- a/modules/skparagraph/src/ParagraphImpl.cpp
 +++ b/modules/skparagraph/src/ParagraphImpl.cpp
 @@ -93,6 +93,9 @@ ParagraphImpl::ParagraphImpl(const SkString& text,
@@ -396,7 +888,7 @@ index 9ea8267545ac92f0c918e74dbaef80ab1e559249..e5bec56148dc8daf31a9c19b03b2d5c0
      }
  }
  
-@@ -717,6 +783,9 @@ void ParagraphImpl::resolveStrut() {
+@@ -717,9 +783,17 @@ void ParagraphImpl::resolveStrut() {
      SkFont font(typefaces.front(), strutStyle.getFontSize());
      SkFontMetrics metrics;
      font.getMetrics(&metrics);
@@ -405,9 +897,84 @@ index 9ea8267545ac92f0c918e74dbaef80ab1e559249..e5bec56148dc8daf31a9c19b03b2d5c0
 +    }
      const SkScalar strutLeading = strutStyle.getLeading() < 0 ? 0 : strutStyle.getLeading() * strutStyle.getFontSize();
  
-     if (strutStyle.getHeightOverride()) {
+-    if (strutStyle.getHeightOverride()) {
++    if (strutStyle.getVenusAbsoluteHeight()) {
++        const auto halfLeading = (strutStyle.getHeight() - (metrics.fDescent - metrics.fAscent)) / 2;
++        fStrutMetrics = InternalLineMetrics(metrics.fAscent - halfLeading,
++            metrics.fDescent + halfLeading, 0,
++            metrics.fAscent, metrics.fDescent, metrics.fLeading);
++    } else if (strutStyle.getHeightOverride()) {
+         SkScalar strutAscent = 0.0f;
+         SkScalar strutDescent = 0.0f;
+         // The half leading flag doesn't take effect unless there's height override.
+@@ -1047,6 +1121,13 @@ void ParagraphImpl::computeEmptyMetrics() {
+     fEmptyMetrics = InternalLineMetrics(font, paragraphStyle().getStrutStyle().getForceStrutHeight());
+ 
+     if (!paragraphStyle().getStrutStyle().getForceStrutHeight() &&
++        textStyle.getVenusAbsoluteHeight()) {
++        const auto ascent = font.getSize() == 0 ? 0 : fEmptyMetrics.ascent();
++        const auto descent = font.getSize() == 0 ? 0 : fEmptyMetrics.descent();
++        const auto halfLeading = (textStyle.getHeight() - (descent - ascent)) / 2;
++        fEmptyMetrics = InternalLineMetrics(ascent - halfLeading, descent + halfLeading,
++            0, ascent, descent, 0);
++    } else if (!paragraphStyle().getStrutStyle().getForceStrutHeight() &&
+         textStyle.getHeightOverride()) {
+         const auto intrinsicHeight = fEmptyMetrics.height();
+         const auto strutHeight = textStyle.getHeight() * textStyle.getFontSize();
+@@ -1116,6 +1197,51 @@ void ParagraphImpl::updateTextAlign(TextAlign textAlign) {
+     }
+ }
+ 
++void ParagraphImpl::updateForegroundPaintIDForRanges(
++        const std::vector<TextRange>& ranges, size_t paintID) {
++    this->ensureUTF16Mapping();
++    std::vector<TextRange> utf8;
++    utf8.reserve(ranges.size());
++    for (const auto& range : ranges) {
++        if (range.start >= range.end ||
++            range.end >= static_cast<size_t>(fUTF8IndexForUTF16Index.size())) continue;
++        utf8.emplace_back(fUTF8IndexForUTF16Index[range.start],
++                          fUTF8IndexForUTF16Index[range.end]);
++    }
++    skia_private::TArray<Block, true> updated;
++    updated.reserve(fTextStyles.size() + 2 * utf8.size());
++    size_t current = 0;
++    for (const auto& block : fTextStyles) {
++        auto cursor = block.fRange.start;
++        while (current < utf8.size() && utf8[current].end <= cursor) ++current;
++        while (current < utf8.size() && utf8[current].start < block.fRange.end) {
++            const auto begin = std::max(cursor, utf8[current].start);
++            const auto end = std::min(block.fRange.end, utf8[current].end);
++            if (cursor < begin) updated.emplace_back(cursor, begin, block.fStyle);
++            auto style = block.fStyle;
++            style.setForegroundPaintID(paintID);
++            updated.emplace_back(begin, end, style);
++            cursor = end;
++            if (utf8[current].end <= cursor) ++current;
++            if (cursor == block.fRange.end) break;
++        }
++        if (cursor < block.fRange.end)
++            updated.emplace_back(cursor, block.fRange.end, block.fStyle);
++    }
++    fTextStyles = std::move(updated);
++    // Sorted ranges and blocks are visited once; glyphs/line positions stay fixed.
++    size_t begin = 0;
++    for (auto& line : fLines) {
++        const auto text = line.textWithNewlines();
++        while (begin < static_cast<size_t>(fTextStyles.size()) &&
++               fTextStyles[begin].fRange.end <= text.start) ++begin;
++        size_t end = begin;
++        while (end < static_cast<size_t>(fTextStyles.size()) &&
++               fTextStyles[end].fRange.start < text.end) ++end;
++        line.updatePaintBlockRange(BlockRange(begin, end));
++    }
++}
++
+ void ParagraphImpl::updateForegroundPaint(size_t from, size_t to, SkPaint paint) {
+     SkASSERT(from == 0 && to == fText.size());
+     auto defaultStyle = fParagraphStyle.getTextStyle();
 diff --git a/modules/skparagraph/src/ParagraphImpl.h b/modules/skparagraph/src/ParagraphImpl.h
-index 0fb0ba9a8e102db5140a1b219addf7cfe56df1ed..092f5467fb768a47d0d09125a2ce1405966488e1 100644
+index 0fb0ba9a8e102db5140a1b219addf7cfe56df1ed..b125b035fe17867f355ccedc13ed632875a2d1d4 100644
 --- a/modules/skparagraph/src/ParagraphImpl.h
 +++ b/modules/skparagraph/src/ParagraphImpl.h
 @@ -117,6 +117,13 @@ public:
@@ -424,7 +991,15 @@ index 0fb0ba9a8e102db5140a1b219addf7cfe56df1ed..092f5467fb768a47d0d09125a2ce1405
      bool getApplyRoundingHack() const { return fParagraphStyle.getApplyRoundingHack(); }
  
      size_t lineNumber() override { return fLines.size(); }
-@@ -256,6 +263,7 @@ private:
+@@ -206,6 +213,7 @@ public:
+     void updateTextAlign(TextAlign textAlign) override;
+     void updateFontSize(size_t from, size_t to, SkScalar fontSize) override;
+     void updateForegroundPaint(size_t from, size_t to, SkPaint paint) override;
++    void updateForegroundPaintIDForRanges(const std::vector<TextRange>& ranges, size_t paintID) override;
+     void updateBackgroundPaint(size_t from, size_t to, SkPaint paint) override;
+ 
+     void visit(const Visitor&) override;
+@@ -256,6 +264,7 @@ private:
      friend class OneLineShaper;
  
      void computeEmptyMetrics();
@@ -432,7 +1007,7 @@ index 0fb0ba9a8e102db5140a1b219addf7cfe56df1ed..092f5467fb768a47d0d09125a2ce1405
  
      // Input
      skia_private::TArray<StyleBlock<SkScalar>> fLetterSpaceStyles;
-@@ -265,6 +273,7 @@ private:
+@@ -265,6 +274,7 @@ private:
      skia_private::TArray<StyleBlock<std::vector<TextShadow>>> fShadowStyles;
      skia_private::TArray<StyleBlock<Decoration>> fDecorationStyles;
      skia_private::TArray<Block, true> fTextStyles; // TODO: take out only the font stuff
@@ -441,28 +1016,30 @@ index 0fb0ba9a8e102db5140a1b219addf7cfe56df1ed..092f5467fb768a47d0d09125a2ce1405
      SkString fText;
  
 diff --git a/modules/skparagraph/src/Run.cpp b/modules/skparagraph/src/Run.cpp
-index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd014ba0515e 100644
+index a1cfc403f8883bd403267a927b09fe9799d57b0e..3a54fc9495f561fe9277fb86d75d3e633b20fbee 100644
 --- a/modules/skparagraph/src/Run.cpp
 +++ b/modules/skparagraph/src/Run.cpp
-@@ -21,7 +21,8 @@ Run::Run(ParagraphImpl* owner,
+@@ -21,7 +21,9 @@ Run::Run(ParagraphImpl* owner,
           bool useHalfLeading,
           SkScalar baselineShift,
           size_t index,
 -         SkScalar offsetX)
 +         SkScalar offsetX,
-+         bool honorZeroHeight)
++         bool honorZeroHeight,
++         bool venusAbsoluteHeight)
      : fOwner(owner)
      , fTextRange(firstChar + info.utf8Range.begin(), firstChar + info.utf8Range.end())
      , fClusterRange(EMPTY_CLUSTERS)
-@@ -33,6 +34,7 @@ Run::Run(ParagraphImpl* owner,
+@@ -33,6 +35,8 @@ Run::Run(ParagraphImpl* owner,
      , fOffsets(fGlyphData->offsets)
      , fClusterIndexes(fGlyphData->clusterIndexes)
      , fHeightMultiplier(heightMultiplier)
 +    , fHonorZeroHeight(honorZeroHeight)
++    , fVenusAbsoluteHeight(venusAbsoluteHeight)
      , fUseHalfLeading(useHalfLeading)
      , fBaselineShift(baselineShift)
  {
-@@ -49,6 +51,11 @@ Run::Run(ParagraphImpl* owner,
+@@ -49,6 +53,11 @@ Run::Run(ParagraphImpl* owner,
      fOffsets.push_back_n(info.glyphCount + 1);
      fClusterIndexes.push_back_n(info.glyphCount + 1);
      info.fFont.getMetrics(&fFontMetrics);
@@ -474,11 +1051,17 @@ index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd01
  
      this->calculateMetrics();
  
-@@ -64,7 +71,12 @@ void Run::calculateMetrics() {
+@@ -64,7 +73,18 @@ void Run::calculateMetrics() {
      fCorrectAscent = fFontMetrics.fAscent - fFontMetrics.fLeading * 0.5;
      fCorrectDescent = fFontMetrics.fDescent + fFontMetrics.fLeading * 0.5;
      fCorrectLeading = 0;
 -    if (SkScalarNearlyZero(fHeightMultiplier)) {
++    if (fVenusAbsoluteHeight) {
++        const auto halfLeading = (fHeightMultiplier - (fCorrectDescent - fCorrectAscent)) / 2;
++        fCorrectAscent -= halfLeading;
++        fCorrectDescent += halfLeading;
++        return;
++    }
 +    if (fFont.getSize() == 0) {
 +        return;  // Also avoids 0/0 when an explicit height multiplier is present.
 +    }
@@ -488,7 +1071,7 @@ index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd01
          return;
      }
      const auto runHeight = fHeightMultiplier * fFont.getSize();
-@@ -78,9 +90,11 @@ void Run::calculateMetrics() {
+@@ -78,9 +98,11 @@ void Run::calculateMetrics() {
          fCorrectAscent *= multiplier;
          fCorrectDescent *= multiplier;
      }
@@ -504,39 +1087,42 @@ index a1cfc403f8883bd403267a927b09fe9799d57b0e..b0336033dd0ad08e573596348d5efd01
  
  SkShaper::RunHandler::Buffer Run::newRunBuffer() {
 diff --git a/modules/skparagraph/src/Run.h b/modules/skparagraph/src/Run.h
-index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..40c7696fbe2e729f16984a2ddfd1a7d430c6929c 100644
+index 8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31..91b78776c29d25f0a91d8db5e2bfda19103687b2 100644
 --- a/modules/skparagraph/src/Run.h
 +++ b/modules/skparagraph/src/Run.h
-@@ -61,7 +61,8 @@ public:
+@@ -61,7 +61,9 @@ public:
          bool useHalfLeading,
          SkScalar baselineShift,
          size_t index,
 -        SkScalar shiftX);
 +        SkScalar shiftX,
-+        bool honorZeroHeight = false);
++        bool honorZeroHeight = false,
++        bool venusAbsoluteHeight = false);
      Run(const Run&) = default;
      Run& operator=(const Run&) = delete;
      Run(Run&&) = default;
-@@ -97,6 +98,9 @@ public:
+@@ -97,6 +99,10 @@ public:
      TextDirection getTextDirection() const { return leftToRight() ? TextDirection::kLtr : TextDirection::kRtl; }
      size_t index() const { return fIndex; }
      SkScalar heightMultiplier() const { return fHeightMultiplier; }
 +    // venus: true when a zero height multiplier is an authored height (see
 +    // ParagraphStyle::setHonorZeroHeightOverride), not "use font metrics".
 +    bool honorZeroHeight() const { return fHonorZeroHeight; }
++    bool venusAbsoluteHeight() const { return fVenusAbsoluteHeight; }
      bool useHalfLeading() const { return fUseHalfLeading; }
      SkScalar baselineShift() const { return fBaselineShift; }
      PlaceholderStyle* placeholderStyle() const;
-@@ -206,6 +210,7 @@ private:
+@@ -206,6 +212,8 @@ private:
  
      SkFontMetrics fFontMetrics;
      const SkScalar fHeightMultiplier;
 +    const bool fHonorZeroHeight;
++    const bool fVenusAbsoluteHeight;
      const bool fUseHalfLeading;
      const SkScalar fBaselineShift;
      SkScalar fCorrectAscent;
 diff --git a/modules/skparagraph/src/TextLine.cpp b/modules/skparagraph/src/TextLine.cpp
-index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885afaf45a19 100644
+index bb60d70f9c34b964aa3dee799d5b846305f468de..e1c230296f565d488286f8e3b95ba3360c83f551 100644
 --- a/modules/skparagraph/src/TextLine.cpp
 +++ b/modules/skparagraph/src/TextLine.cpp
 @@ -366,11 +366,18 @@ void TextLine::buildTextBlob(TextRange textRange, const TextStyle& style, const
@@ -562,47 +1148,49 @@ index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885a
  
      SkASSERT(nearlyEqual(context.run->baselineShift(), style.getBaselineShift()));
      SkScalar correctedBaseline = SkScalarFloorToScalar(this->baseline() + style.getBaselineShift() +  0.5);
-@@ -635,8 +642,10 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+@@ -635,8 +642,11 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
  
      class ShapeHandler final : public SkShaper::RunHandler {
      public:
 -        ShapeHandler(SkScalar lineHeight, bool useHalfLeading, SkScalar baselineShift, const SkString& ellipsis)
 -            : fRun(nullptr), fLineHeight(lineHeight), fUseHalfLeading(useHalfLeading), fBaselineShift(baselineShift), fEllipsis(ellipsis) {}
 +        ShapeHandler(SkScalar lineHeight, bool useHalfLeading, SkScalar baselineShift,
-+                     const SkString& ellipsis, bool honorZeroHeight)
++                     const SkString& ellipsis, bool honorZeroHeight, bool venusAbsoluteHeight)
 +            : fRun(nullptr), fLineHeight(lineHeight), fHonorZeroHeight(honorZeroHeight),
++              fVenusAbsoluteHeight(venusAbsoluteHeight),
 +              fUseHalfLeading(useHalfLeading), fBaselineShift(baselineShift), fEllipsis(ellipsis) {}
          std::unique_ptr<Run> run() & { return std::move(fRun); }
  
      private:
-@@ -648,7 +657,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+@@ -648,7 +658,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
  
          Buffer runBuffer(const RunInfo& info) override {
              SkASSERT(!fRun);
 -            fRun = std::make_unique<Run>(nullptr, info, 0, fLineHeight, fUseHalfLeading, fBaselineShift, 0, 0);
-+            fRun = std::make_unique<Run>(nullptr, info, 0, fLineHeight, fUseHalfLeading, fBaselineShift, 0, 0, fHonorZeroHeight);
++            fRun = std::make_unique<Run>(nullptr, info, 0, fLineHeight, fUseHalfLeading, fBaselineShift, 0, 0, fHonorZeroHeight, fVenusAbsoluteHeight);
              return fRun->newRunBuffer();
          }
  
-@@ -663,6 +672,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+@@ -663,6 +673,8 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
  
          std::unique_ptr<Run> fRun;
          SkScalar fLineHeight;
 +        bool fHonorZeroHeight;
++        bool fVenusAbsoluteHeight;
          bool fUseHalfLeading;
          SkScalar fBaselineShift;
          SkString fEllipsis;
-@@ -682,7 +692,8 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
+@@ -682,7 +694,8 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
      }
  
      auto shaped = [&](sk_sp<SkTypeface> typeface, sk_sp<SkFontMgr> fallback) -> std::unique_ptr<Run> {
 -        ShapeHandler handler(run.heightMultiplier(), run.useHalfLeading(), run.baselineShift(), ellipsis);
 +        ShapeHandler handler(run.heightMultiplier(), run.useHalfLeading(), run.baselineShift(),
-+                             ellipsis, run.honorZeroHeight());
++                             ellipsis, run.honorZeroHeight(), run.venusAbsoluteHeight());
          SkFont font(std::move(typeface), textStyle.getFontSize());
          font.setEdging(textStyle.getFontEdging());
          font.setHinting(textStyle.getFontHinting());
-@@ -1039,7 +1050,9 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(TextAdjustment textAdjustment
+@@ -1039,7 +1052,9 @@ SkScalar TextLine::iterateThroughSingleRunByStyles(TextAdjustment textAdjustment
          auto runStyleTextRange = TextRange(start, start + size);
          ClipContext clipContext = correctContext(runStyleTextRange, textOffsetInRun);
          textOffsetInRun += clipContext.clip.width();
@@ -613,7 +1201,7 @@ index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885a
              continue;
          }
          visitor(runStyleTextRange, *prevStyle, clipContext);
-@@ -1133,6 +1146,7 @@ LineMetrics TextLine::getMetrics() const {
+@@ -1133,6 +1148,7 @@ LineMetrics TextLine::getMetrics() const {
          result.fWidth = littleRound(result.fWidth);
      }
      result.fLeft = this->offset().fX;
@@ -621,7 +1209,7 @@ index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885a
      // This is Flutter definition of a baseline
      result.fBaseline = this->offset().fY + this->height() - this->sizes().descent();
      result.fLineNumber = this - fOwner->lines().data();
-@@ -1148,8 +1162,7 @@ LineMetrics TextLine::getMetrics() const {
+@@ -1148,8 +1164,7 @@ LineMetrics TextLine::getMetrics() const {
          *runWidthInLine = this->iterateThroughSingleRunByStyles(
          TextAdjustment::GlyphCluster, run, runOffsetInLine, textRange, StyleType::kForeground,
          [&result, &run](TextRange textRange, const TextStyle& style, const ClipContext& context) {
@@ -631,7 +1219,7 @@ index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885a
              StyleMetrics styleMetrics(&style, fontMetrics);
              result.fLineMetrics.emplace(textRange.start, styleMetrics);
          });
-@@ -1254,7 +1267,9 @@ void TextLine::getRectsForRange(TextRange textRange0,
+@@ -1254,7 +1269,9 @@ void TextLine::getRectsForRange(TextRange textRange0,
                  }
                  break;
                  case RectHeightStyle::kTight: {
@@ -642,11 +1230,35 @@ index bb60d70f9c34b964aa3dee799d5b846305f468de..8f964266c48d06f8d3c0f28a09d9885a
                          break;
                      }
                      const auto effectiveBaseline = this->baseline() + this->sizes().delta();
+diff --git a/modules/skparagraph/src/TextLine.h b/modules/skparagraph/src/TextLine.h
+index 9edce483807ea079c4ef77cf299e512818628082..c63433e7078bacb67d653c82c9152155239da3d8 100644
+--- a/modules/skparagraph/src/TextLine.h
++++ b/modules/skparagraph/src/TextLine.h
+@@ -64,6 +64,11 @@ public:
+              SkScalar widthWithSpaces,
+              InternalLineMetrics sizes);
+ 
++    void updatePaintBlockRange(BlockRange blocks) {
++        fBlockRange = blocks;
++        fTextBlobCache.clear();
++        fTextBlobCachePopulated = false;
++    }
+     TextRange trimmedText() const { return fTextExcludingSpaces; }
+     TextRange textWithNewlines() const { return fTextIncludingNewlines; }
+     TextRange text() const { return fText; }
 diff --git a/modules/skparagraph/src/TextStyle.cpp b/modules/skparagraph/src/TextStyle.cpp
-index de2dee3116103bad4c81540ddeaafc4b0018e720..a1b2257ca2d7a5927daa7322f17716c4074b00ba 100644
+index de2dee3116103bad4c81540ddeaafc4b0018e720..d0d72e23fb895ec93799b29378a2f8869227044b 100644
 --- a/modules/skparagraph/src/TextStyle.cpp
 +++ b/modules/skparagraph/src/TextStyle.cpp
-@@ -52,6 +52,9 @@ bool TextStyle::equals(const TextStyle& other) const {
+@@ -20,6 +20,7 @@ TextStyle TextStyle::cloneForPlaceholder() {
+     result.fBackground = fBackground;
+     result.fForeground = fForeground;
+     result.fHeightOverride = fHeightOverride;
++    result.fVenusAbsoluteHeight = fVenusAbsoluteHeight;
+     result.fIsPlaceholder = true;
+     result.fFontFeatures = fFontFeatures;
+     result.fHalfLeading = fHalfLeading;
+@@ -52,9 +53,13 @@ bool TextStyle::equals(const TextStyle& other) const {
      if (fWordSpacing != other.fWordSpacing) {
          return false;
      }
@@ -656,11 +1268,42 @@ index de2dee3116103bad4c81540ddeaafc4b0018e720..a1b2257ca2d7a5927daa7322f17716c4
      if (fHeight != other.fHeight) {
          return false;
      }
++    if (fVenusAbsoluteHeight != other.fVenusAbsoluteHeight) return false;
+     if (fHeightOverride != other.fHeightOverride) {
+         return false;
+     }
+@@ -109,6 +114,7 @@ bool TextStyle::equalsByFonts(const TextStyle& that) const {
+            nearlyEqual(fLetterSpacing, that.fLetterSpacing) &&
+            nearlyEqual(fWordSpacing, that.fWordSpacing) &&
+            nearlyEqual(fHeight, that.fHeight) &&
++           fVenusAbsoluteHeight == that.fVenusAbsoluteHeight &&
+            nearlyEqual(fBaselineShift, that.fBaselineShift) &&
+            nearlyEqual(fFontSize, that.fFontSize) &&
+            fLocale == that.fLocale;
+@@ -155,6 +161,7 @@ bool TextStyle::matchOneAttribute(StyleType styleType, const TextStyle& other) c
+                    fFontFamilies == other.fFontFamilies &&
+                    fFontSize == other.fFontSize &&
+                    fHeight == other.fHeight &&
++                   fVenusAbsoluteHeight == other.fVenusAbsoluteHeight &&
+                    fHalfLeading == other.fHalfLeading &&
+                    fBaselineShift == other.fBaselineShift &&
+                    fFontArguments == other.fFontArguments;
+@@ -195,7 +202,9 @@ void TextStyle::setFontArguments(const std::optional<SkFontArguments>& args) {
+ }
+ 
+ bool PlaceholderStyle::equals(const PlaceholderStyle& other) const {
+-    return nearlyEqual(fWidth, other.fWidth) &&
++    return fVenusInlineEdge == other.fVenusInlineEdge &&
++           (!fVenusInlineEdge || fVenusInlineEdgeStart == other.fVenusInlineEdgeStart) &&
++           nearlyEqual(fWidth, other.fWidth) &&
+            nearlyEqual(fHeight, other.fHeight) &&
+            fAlignment == other.fAlignment &&
+            fBaseline == other.fBaseline &&
 diff --git a/modules/skparagraph/src/TextWrapper.cpp b/modules/skparagraph/src/TextWrapper.cpp
-index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4ecb1ca70 100644
+index 718687cd2ba982fbeeae2f735abdc6e95618b724..488d1db7780f3f9add0217e621c6f2a971ba53b8 100644
 --- a/modules/skparagraph/src/TextWrapper.cpp
 +++ b/modules/skparagraph/src/TextWrapper.cpp
-@@ -2,6 +2,8 @@
+@@ -2,10 +2,25 @@
  #include "modules/skparagraph/src/ParagraphImpl.h"
  #include "modules/skparagraph/src/TextWrapper.h"
  
@@ -669,28 +1312,59 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
  namespace skia {
  namespace textlayout {
  
-@@ -47,6 +49,16 @@ struct LineBreakerWithLittleRounding {
+ namespace {
++const PlaceholderStyle* venusInlineEdge(const Cluster* cluster) {
++    const auto* run = cluster ? cluster->runOrNull() : nullptr;
++    return run && run->isPlaceholder() && run->placeholderStyle()->fVenusInlineEdge
++        ? run->placeholderStyle() : nullptr;
++}
++bool atomicPlaceholder(const Cluster* cluster) {
++    if (!cluster->run().isPlaceholder() || venusInlineEdge(cluster)) return false;
++    const auto span = cluster->run().owner()->clusters();
++    const auto* before = cluster > span.data() ? venusInlineEdge(cluster - 1) : nullptr;
++    const auto* after = cluster + 1 < span.end() ? venusInlineEdge(cluster + 1) : nullptr;
++    return !(before && before->fVenusInlineEdgeStart) &&
++           !(after && !after->fVenusInlineEdgeStart);
++}
+ struct LineBreakerWithLittleRounding {
+     LineBreakerWithLittleRounding(SkScalar maxWidth, bool applyRoundingHack)
+         : fLower(maxWidth - 0.25f)
+@@ -47,6 +62,29 @@ struct LineBreakerWithLittleRounding {
  };
  }  // namespace
  
 +bool TextWrapper::preservesCluster(const Cluster* cluster) const {
++    if (const auto* edge = venusInlineEdge(cluster)) {
++        const auto span = fParent->clusters();
++        const auto step = edge->fVenusInlineEdgeStart ? 1 : -1;
++        do {
++            if ((step < 0 && cluster == span.data()) ||
++                (step > 0 && cluster == span.data() + span.size() - 1)) return false;
++            cluster += step;
++        } while (venusInlineEdge(cluster));
++    }
 +    const auto* run = cluster ? cluster->runOrNull() : nullptr;
 +    return run && !cluster->isHardBreak() && !run->isPlaceholder() &&
 +           fParent->venusNoSoftWrap(cluster->textRange().start);
 +}
 +
 +bool TextWrapper::protectsBreak(const Cluster* cluster) const {
-+    return preservesCluster(cluster) && fParent->venusNoSoftWrap(cluster->textRange().end);
++    if (!preservesCluster(cluster)) return false;
++    auto offset = cluster->textRange().end;
++    const auto end = fParent->clusters().end();
++    while (++cluster < end && venusInlineEdge(cluster)) offset = cluster->textRange().end;
++    return fParent->venusNoSoftWrap(offset);
 +}
 +
  // Since we allow cluster clipping when they don't fit
  // we have to work with stretches - parts of clusters
  void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool applyRoundingHack) {
-@@ -58,13 +70,19 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -58,20 +96,27 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
      fClip.startFrom(fEndLine.startCluster(), fEndLine.startPos());
  
      LineBreakerWithLittleRounding breaker(maxWidth, applyRoundingHack);
-+    const bool wordBoundaryWrap = !fParent->paragraphStyle().getVenusFloatExclusions().empty();
++    const bool wordBoundaryWrap = fParent->paragraphStyle().getVenusWordBoundaryWrap() ||
++                                  !fParent->paragraphStyle().getVenusFloatExclusions().empty();
      Cluster* nextNonBreakingSpace = nullptr;
 +    bool protectedWord = false;
      for (auto cluster = fEndLine.endCluster(); cluster < endOfClusters; ++cluster) {
@@ -706,11 +1380,19 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
              if (cluster->isWhitespaceBreak()) {
                  // It's the end of the word
                  fClusters.extend(cluster);
-@@ -90,11 +108,17 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+                 fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, this->getClustersTrimmedWidth());
+                 fWords.extend(fClusters);
+                 continue;
+-            } else if (cluster->run().isPlaceholder()) {
++            } else if (atomicPlaceholder(cluster)) {
+                 if (!fClusters.empty()) {
+                     // Placeholder ends the previous word
+                     fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, this->getClustersTrimmedWidth());
+@@ -90,19 +135,26 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
                  break;
              }
  
-+            // Venus CSS float paragraphs may overflow their first whole word,
++            // Venus CSS paragraphs may overflow their first whole word,
 +            // but later words restart after the preceding legal boundary.
 +            // The default Flutter path keeps its emergency cluster breaking.
 +            if (wordBoundaryWrap) break;
@@ -724,8 +1406,9 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
 +                    ((further->isSoftBreak() || further->isWhitespaceBreak()) && !protectsBreak(further))) {
                      break;
                  }
-                 if (further->run().isPlaceholder()) {
-@@ -102,7 +126,8 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+-                if (further->run().isPlaceholder()) {
++                if (atomicPlaceholder(further)) {
+                   // Placeholder ends the word
                    break;
                  }
  
@@ -735,7 +1418,16 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
                      // The cluster is spaces but not the end of the word in a normal sense
                      nextNonBreakingSpace = further;
                      nextShortWordLength = nextWordLength;
-@@ -163,11 +188,15 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+@@ -151,7 +203,7 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
+             break;
+         }
+ 
+-        if (cluster->run().isPlaceholder()) {
++        if (atomicPlaceholder(cluster)) {
+             if (!fClusters.empty()) {
+                 // Placeholder ends the previous word (placeholders are ignored in trimming)
+                 fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, getClustersTrimmedWidth());
+@@ -163,11 +215,15 @@ void TextWrapper::lookAhead(SkScalar maxWidth, Cluster* endOfClusters, bool appl
              fWords.extend(cluster);
          } else {
              fClusters.extend(cluster);
@@ -753,7 +1445,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
              }
          }
  
-@@ -213,11 +242,12 @@ void TextWrapper::trimEndSpaces(TextAlign align) {
+@@ -213,11 +269,12 @@ void TextWrapper::trimEndSpaces(TextAlign align) {
      fEndLine.saveBreak();
      // Skip all space cluster at the end
      for (auto cluster = fEndLine.endCluster();
@@ -768,7 +1460,11 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
  }
  
  SkScalar TextWrapper::getClustersTrimmedWidth() {
-@@ -229,8 +259,9 @@ SkScalar TextWrapper::getClustersTrimmedWidth() {
+@@ -226,11 +283,13 @@ SkScalar TextWrapper::getClustersTrimmedWidth() {
+     bool trailingSpaces = true;
+     for (auto cluster = fClusters.endCluster(); cluster >= fClusters.startCluster(); --cluster) {
+         if (cluster->run().isPlaceholder()) {
++            if (!atomicPlaceholder(cluster)) width += cluster->width();
              continue;
          }
          if (trailingSpaces) {
@@ -780,7 +1476,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
                  trailingSpaces = false;
              }
              continue;
-@@ -258,12 +289,14 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
+@@ -258,12 +317,14 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
      // It's a soft line break so we need to move lineStart forward skipping all the spaces
      auto width = fEndLine.widthWithGhostSpaces();
      auto cluster = fEndLine.breakCluster() + 1;
@@ -797,7 +1493,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
          // In case of a soft line break by the whitespace
          // fBreak should point to the beginning of the next line
          // (it only matters when there are trailing spaces)
-@@ -277,6 +310,7 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
+@@ -277,6 +338,7 @@ std::tuple<Cluster*, size_t, SkScalar> TextWrapper::trimStartSpaces(Cluster* end
  void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
                                       SkScalar maxWidth,
                                       const AddLineToParagraph& addLine) {
@@ -805,7 +1501,70 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
      fHeight = 0;
      fMinIntrinsicWidth = std::numeric_limits<SkScalar>::min();
      fMaxIntrinsicWidth = std::numeric_limits<SkScalar>::min();
-@@ -295,6 +329,26 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -285,6 +347,62 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+     if (span.empty()) {
+         return;
+     }
++    const bool hasInlineEdges = std::any_of(parent->fPlaceholders.begin(),
++        parent->fPlaceholders.end(), [](const auto& ph) { return ph.fStyle.fVenusInlineEdge; });
++    if (hasInlineEdges) {
++        // U+FFFC creates Unicode boundaries even before the placeholder-specific
++        // wrapping rules. Recompute only soft boundaries on text with edges
++        // removed, then map them back to the original, geometry-bearing text.
++        std::string text;
++        std::vector<size_t> boundaries{0};
++        size_t cursor = 0;
++        auto append = [&](size_t end) {
++            while (cursor < end) {
++                text += parent->fText[cursor++];
++                boundaries.push_back(cursor);
++            }
++        };
++        for (const auto& ph : parent->fPlaceholders) {
++            if (!ph.fStyle.fVenusInlineEdge) continue;
++            append(ph.fRange.start);
++            cursor = ph.fRange.end;
++            // A legal break belongs after closing edges and before opening edges.
++            if (!ph.fStyle.fVenusInlineEdgeStart) boundaries.back() = cursor;
++        }
++        append(parent->fText.size());
++        auto iter = parent->getUnicode()->makeBreakIterator(SkUnicode::BreakType::kLines);
++        if (!iter || !iter->setText(text.data(), text.size())) {
++            fHeight = std::numeric_limits<SkScalar>::infinity();
++            return;
++        }
++        for (auto& flags : parent->fCodeUnitProperties) {
++            flags &= ~SkUnicode::CodeUnitFlags::kSoftLineBreakBefore;
++        }
++        for (auto pos = iter->first(); !iter->isDone(); pos = iter->next()) {
++            parent->fCodeUnitProperties[boundaries[pos]] |=
++                SkUnicode::CodeUnitFlags::kSoftLineBreakBefore;
++        }
++        // Atomic placeholders retain their original forced boundaries.
++        for (size_t i = 0; i < size_t(parent->fPlaceholders.size()); ++i) {
++            const auto& ph = parent->fPlaceholders[i];
++            if (ph.fStyle.fVenusInlineEdge) continue;
++            auto before = ph.fRange.start, after = ph.fRange.end;
++            for (size_t j = i; j > 0; --j) {
++                const auto& edge = parent->fPlaceholders[j - 1];
++                if (!edge.fStyle.fVenusInlineEdge || !edge.fStyle.fVenusInlineEdgeStart ||
++                    edge.fRange.end != before) break;
++                before = edge.fRange.start;
++            }
++            for (size_t j = i + 1; j < size_t(parent->fPlaceholders.size()); ++j) {
++                const auto& edge = parent->fPlaceholders[j];
++                if (!edge.fStyle.fVenusInlineEdge || edge.fStyle.fVenusInlineEdgeStart ||
++                    edge.fRange.start != after) break;
++                after = edge.fRange.end;
++            }
++            parent->fCodeUnitProperties[before] |= SkUnicode::CodeUnitFlags::kSoftLineBreakBefore;
++            parent->fCodeUnitProperties[after] |= SkUnicode::CodeUnitFlags::kSoftLineBreakBefore;
++        }
++    }
+     auto maxLines = parent->paragraphStyle().getMaxLines();
+     auto align = parent->paragraphStyle().effective_align();
+     auto unlimitedLines = maxLines == std::numeric_limits<size_t>::max();
+@@ -295,6 +413,26 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
      auto disableLastDescent = parent->paragraphStyle().getTextHeightBehavior() & TextHeightBehavior::kDisableLastDescent;
      bool firstLine = true; // We only interested in fist line if we have to disable the first ascent
  
@@ -832,7 +1591,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
      SkScalar softLineMaxIntrinsicWidth = 0;
      fEndLine = TextStretch(span.data(), span.data(), parent->strutForceHeight());
      auto start = span.data();
-@@ -302,80 +356,152 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -302,80 +440,152 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
      InternalLineMetrics maxRunMetrics;
      bool needEllipsis = false;
      while (fEndLine.endCluster() != end) {
@@ -1046,7 +1805,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
          firstLine = false;
  
          if (fEndLine.empty()) {
-@@ -389,10 +515,13 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -389,10 +599,13 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
  
          addLine(textExcludingSpaces,
                  text,
@@ -1062,7 +1821,34 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
                  SkVector::Make(fEndLine.width(), lineHeight),
                  fEndLine.metrics(),
                  needEllipsis && !fHardLineBreak);
-@@ -484,6 +613,12 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -439,12 +652,13 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+                 softLineMaxIntrinsicWidth = 0;
+                 fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, lastWordLength);
+                 lastWordLength = 0;
+-            } else if (cluster->isWhitespaceBreak()) {
++            } else if (cluster->isWhitespaceBreak() &&
++                       (!hasInlineEdges || !protectsBreak(cluster))) {
+                 // Whitespaces end the word
+                 softLineMaxIntrinsicWidth += cluster->width();
+                 fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, lastWordLength);
+                 lastWordLength = 0;
+-            } else if (cluster->run().isPlaceholder()) {
++            } else if (atomicPlaceholder(cluster)) {
+                 // Placeholder ends the previous word and creates a separate one
+                 fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, lastWordLength);
+                 // Placeholder width now counts in fMinIntrinsicWidth
+@@ -455,6 +669,10 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+                 // Nothing out of ordinary - just add this cluster to the word and to the line
+                 softLineMaxIntrinsicWidth += cluster->width();
+                 lastWordLength += cluster->width();
++                if (hasInlineEdges && cluster->isSoftBreak() && !protectsBreak(cluster)) {
++                    fMinIntrinsicWidth = std::max(fMinIntrinsicWidth, lastWordLength);
++                    lastWordLength = 0;
++                }
+             }
+             ++cluster;
+         }
+@@ -484,6 +702,12 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
              parent->strutMetrics().updateLineMetrics(fEndLine.metrics());
          }
  
@@ -1075,7 +1861,7 @@ index 718687cd2ba982fbeeae2f735abdc6e95618b724..a3d028385e65e529cbed5d2c62aeb7e4
          ClusterRange clusters(fEndLine.breakCluster() - start, fEndLine.endCluster() - start);
          addLine(fEndLine.breakCluster()->textRange(),
                  fEndLine.breakCluster()->textRange(),
-@@ -493,7 +628,7 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
+@@ -493,7 +717,7 @@ void TextWrapper::breakTextIntoLines(ParagraphImpl* parent,
                  0,
                  0,
                  0,

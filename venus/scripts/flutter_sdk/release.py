@@ -274,6 +274,29 @@ def recipes(root, groups, sdk_host=None):
     return result
 
 
+
+def select_configurations(recipe_list, configurations):
+    """Select exact canonical Ninja configs, without changing their recipes."""
+    if configurations is None:
+        return recipe_list
+    requested = set(configurations)
+    need(len(requested) == len(configurations), "Repeated --config")
+    available = {b["ninja"]["config"] for _, _, recipe in recipe_list for b in recipe["builds"]}
+    need(requested and requested <= available,
+         f"Unknown or cross-group --config: {sorted(requested - available)}")
+    return [(group, path, dict(recipe, builds=[b for b in recipe["builds"]
+                                             if b["ninja"]["config"] in requested]))
+            for group, path, recipe in recipe_list
+            if any(b["ninja"]["config"] in requested for b in recipe["builds"])]
+
+
+def positive_jobs(value):
+    jobs = int(value)
+    if jobs <= 0:
+        raise argparse.ArgumentTypeError("--jobs must be a positive integer")
+    return jobs
+
+
 def adapt_macos_recipe(name, spec):
     """Keep official sources unchanged; select their local Darwin producers."""
     for build in spec["builds"]:
@@ -499,12 +522,15 @@ def build_into(args, previous_output):
     need(set(groups) <= set(WORKERS.get(actual_host, ())), f"Groups {groups} cannot run on {actual_host}; see plan")
     src = root / "engine/src"
     output = physical(args.output)
-    recipes_to_run = recipes(root, groups, sdk_host=actual_host)
+    all_recipes = recipes(root, groups, sdk_host=actual_host)
+    selection = getattr(args, "config", None)
+    recipes_to_run = select_configurations(all_recipes, selection)
+    partial_build = selection is not None
     configs = [b["ninja"]["config"] for _, _, recipe in recipes_to_run for b in recipe["builds"]]
     need(len(configs) == len(set(configs)), "Repeated recipe/output config")
     custom_vars = {"setup_githooks": False, "use_rbe": False}
     # One sync loads the union of dependencies needed by this worker's groups.
-    for _, _, recipe in recipes_to_run:
+    for _, _, recipe in all_recipes:
         for b in recipe["builds"]:
             for key, value in b.get("gclient_variables", {}).items():
                 if key != "use_rbe":
@@ -539,7 +565,7 @@ def build_into(args, previous_output):
     readobj = find_tool(root, args.readobj, "llvm-readobj")
     ninja = root / ("third_party/ninja/ninja.exe" if platform.system() == "Windows" else "third_party/ninja/ninja")
     need(ninja.is_file(), f"DEPS ninja missing: {ninja}")
-    recipe_hashes = {path.relative_to(root).as_posix(): digest(path) for _, path, _ in recipes_to_run}
+    recipe_hashes = {path.relative_to(root).as_posix(): digest(path) for _, path, _ in all_recipes}
     tool_hashes = {"ninja": digest(ninja), "llvm_nm": digest(nm), "llvm_readobj": digest(readobj)}
     # Clang frontends share one large LLVM binary; hash each physical file once.
     compiler_hashes = {nm.resolve(): tool_hashes["llvm_nm"], readobj.resolve(): tool_hashes["llvm_readobj"]}
@@ -572,7 +598,8 @@ def build_into(args, previous_output):
     started_ns = time.time_ns()
     replace_json(state_path, {"key": key, "status": "building", "started_ns": started_ns, "source": identity})
     receipt = {"schema_version": 2, "source": identity, "host": actual_host, "groups": groups,
-               "build_mode": "incremental", "cache_key_sha256": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(),
+               "build_mode": "incremental", "partial_build": partial_build, "selected_configs": configs,
+               "jobs": getattr(args, "jobs", None), "cache_key_sha256": hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest(),
                "started_ns": started_ns, "gclient_variables": custom_vars,
                "recipes": {}, "builds": [], "archives": [],
                "inspection_tools": {"llvm_nm": {"sha256": digest(nm), "version": run([nm, "--version"], capture=True)},
@@ -586,7 +613,8 @@ def build_into(args, previous_output):
             run([sys.executable, src / "flutter/tools/gn", *gn], cwd=src, env=env)
             actual_args = (config_path / "args.gn").read_text()
             need(f'engine_version = "{identity["flutter_commit"]}"' in actual_args, "GN embedded engine identity mismatch")
-            run([ninja, "-C", config_path, *b["ninja"].get("targets", [])], cwd=src, env=env)
+            run([ninja, *(["-j", str(args.jobs)] if getattr(args, "jobs", None) else []),
+                 "-C", config_path, *b["ninja"].get("targets", [])], cwd=src, env=env)
             native = {}
             for p in config_path.rglob("*"):
                 if p.is_file() and not p.is_symlink() and p.name in RUNTIMES:
@@ -603,6 +631,8 @@ def build_into(args, previous_output):
             receipt["builds"].append({"name": b["name"], "group": group, "gn": gn,
                                        "args_gn_sha256": digest(config_path / "args.gn"), "ninja_targets": b["ninja"].get("targets", []), "started_ns": started,
                                        "finished_ns": time.time_ns(), "validated_current_inputs": True, "native": native})
+        if partial_build:
+            continue  # Full-matrix generators/archives must not fabricate a complete SDK.
         # Reuse official Apple framework/snapshot postprocessors. LUCI docs,
         # upload and official export-whitelist steps do not produce SDK artifacts.
         for task in recipe.get("generators", {}).get("tasks", []):
@@ -692,6 +722,7 @@ def artifact_map(receipt_paths, identity):
     for path in receipt_paths:
         path = Path(path).resolve()
         receipt = read_json(path)
+        need(not receipt.get("partial_build", False), "Partial configuration receipt cannot package a complete SDK")
         incremental = receipt.get("schema_version") == 2 and receipt.get("build_mode") == "incremental" and bool(
             re.fullmatch(r"[0-9a-f]{64}", receipt.get("cache_key_sha256", ""))) and all(
                 b.get("validated_current_inputs") is True for b in receipt.get("builds", []))
@@ -1167,6 +1198,8 @@ def main():
     b.add_argument("--source-receipt", required=True)
     b.add_argument("--group", choices=GROUPS, action="append", required=True)
     b.add_argument("--output", required=True)
+    b.add_argument("--config", action="append", help="Exact canonical Ninja config; repeat for a partial build")
+    b.add_argument("--jobs", type=positive_jobs, help="Positive Ninja job limit; default is unchanged")
     q = sub.add_parser("package", help="Package/warm/smoke-test a complete custom SDK on its actual host")
     q.add_argument("--source-bundle", required=True)
     q.add_argument("--source-receipt", required=True)

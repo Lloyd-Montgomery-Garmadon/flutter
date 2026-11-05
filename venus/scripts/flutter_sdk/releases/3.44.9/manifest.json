@@ -8,19 +8,94 @@
   "patch_branch": "venus/venus-stable-3.44.9",
   "source": {
     "flutter_base": "6b182d2c7585eba26d4edce0f97630effd256c33",
-    "flutter_tip": "3fe9754174435a61cea3192b784dc5282881ca31",
-    "flutter_commit_count": 27,
-    "flutter_changed_files": 46,
+    "flutter_tip": "9fa512ceec01635bacf77ee4e37d8a57c42c1376",
+    "flutter_commit_count": 39,
+    "flutter_changed_files": 57,
     "inventory": "source-inventory.json",
-    "migrated_patch_commit": "3fe9754174435a61cea3192b784dc5282881ca31",
-    "seed_native_commit": "b0b611433003f8986959334835649fc134f38787",
-    "inherited_source": {
-      "flutter_base": "49d0823cb00e22a08534f2b5e2a125386176eea6",
-      "flutter_tip": "12a1cd2cceb08dda55cd5f57ceec4ce1b9330447",
-      "flutter_commit_count": 53,
-      "flutter_changed_files": 43,
+    "migrated_patch_commit": "9fa512ceec01635bacf77ee4e37d8a57c42c1376",
+    "source_branch": "claude/venus-stable-3.44.9-sdk-v5",
+    "target_branch": "venus/venus-stable-3.44.9",
+    "target_branch_tip_before": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+    "candidate_parent": "emoji-middle",
+    "candidate_issue": "shared-pcache-trim",
+    "shared_pcache_commits": [
+      "c3fd8d1868a012c0117fd9a43df61f69246dbb6a",
+      "87377e176d0add90745082b2a10a5334fd805cfd",
+      "9fa512ceec01635bacf77ee4e37d8a57c42c1376"
+    ],
+    "previous_candidate_source": {
+      "flutter_base": "6b182d2c7585eba26d4edce0f97630effd256c33",
+      "flutter_tip": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "flutter_commit_count": 36,
+      "flutter_changed_files": 55,
       "inventory": "source-inventory.json",
-      "migrated_patch_commit": "f33cd941229dacd068c66e2a23946e391b58cc9a"
+      "migrated_patch_commit": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "candidate_parent": "zero-abs-line",
+      "candidate_issue": "emoji-middle",
+      "sdk99_commit": "f524b2f4d768b162af0388db831c6868e83009ec",
+      "components": [
+        {
+          "name": "negative-atomic",
+          "manifest_sha256": "778f489c5f6bb41808217f87ce9fd230f1d5591ee032235dd0f96b61a0107c02",
+          "native_patch_sha256": "4052b74be870eeef3b0a633b5ebbcddd60eb23db238092df0d64d1068ebb33b9",
+          "skia_patch_sha256": "4601af61953eea19d704cc5c49868d560addfff0bd62f0bd0136fd7c1ff8930f",
+          "manifest_recorded_source_tip": "8745b793339fb69aab99707a28a3ab0979c63bee",
+          "actual_native_head": "8745b793339fb69aab99707a28a3ab0979c63bee",
+          "actual_skia_head": "d60107b7f677c34737117227634fb0b8a262ea07",
+          "working_tree_source": false
+        },
+        {
+          "name": "a-zero-strut-abi",
+          "manifest_sha256": "19f903db24962b66d2f4b552df6e33e84d28e351c8389cf8ac65233c4f7c4bff",
+          "native_patch_sha256": "d7eff9eed77f7620cadd7b8eb4589712d074843d4754a1c153f3d0cf99027247",
+          "skia_patch_sha256": "4601af61953eea19d704cc5c49868d560addfff0bd62f0bd0136fd7c1ff8930f",
+          "manifest_recorded_source_tip": "3efc52b26378ca87e21df281592eea724f2bda03",
+          "actual_native_head": "3efc52b26378ca87e21df281592eea724f2bda03",
+          "actual_skia_head": "fc39fb5d582c8d5ecb06e95f0a5cdb139bea3d17",
+          "working_tree_source": false
+        },
+        {
+          "name": "firstline",
+          "manifest_sha256": "be6b438998b59c7edfc178c2a00c9c5ebd2bc217ecfc125a9b7175165a7491d9",
+          "native_patch_sha256": "05d06b4d4a6c19bd9d8eb1cd257c4514c8a66053134f5962a4fd34a5d21ecb70",
+          "skia_patch_sha256": "300248e9ae605e01a0f7cd1fabcf2e5af78a121125ca3d2cb0b3b507befd8e74",
+          "manifest_recorded_source_tip": "f524b2f4d768b162af0388db831c6868e83009ec",
+          "actual_native_head": "f524b2f4d768b162af0388db831c6868e83009ec",
+          "actual_skia_head": "2387272120f66b05d76573c14437e559bfaaa6a5",
+          "working_tree_source": true
+        },
+        {
+          "name": "zero-abs-line",
+          "native_increment_base": "c7803447dd69b49050d2b196beff73e76ac0c003",
+          "native_increment_tip": "a46ac72717a75bc497c9dff3389fcc19393d3bc2",
+          "skia_increment_base": "34d1215c7edc08528fc6652bd070f722b0d6010a",
+          "skia_increment_tip": "536ec96a624d048118316c2e2500e4de794b8bf9",
+          "old_e10_native": "1e543161c9a8295ac5884be1e1f99dee1300838e",
+          "old_e10_skia": "1376256092cbc8cd6424a98e76836e05f6e54277"
+        }
+      ],
+      "zero_strut_commits": [
+        "fa996a52aedeb0d3a302379d0182e52a6bddc811",
+        "3579460a23809bd5ca032ff867693946d4905bb6",
+        "2bcf3fa05ac6953ceb670b556bcfc81a6717d928",
+        "3efc52b26378ca87e21df281592eea724f2bda03"
+      ],
+      "firstline_input": "only native + Skia working-tree deltas relative to sdk99; preserve the normal-word-break chain already in negative/zero",
+      "parent_identity": {
+        "native": "c7803447dd69b49050d2b196beff73e76ac0c003",
+        "skia": "34d1215c7edc08528fc6652bd070f722b0d6010a",
+        "manifest_sha256": "8925a28c9f850ac99c85e2ef7f7ba811432b133ae566e671f52fe14d92b455ec"
+      },
+      "emoji_middle_commits": [
+        "49fc1c405185da5664bbc60c95c631d625a7428e",
+        "b745324b17cc37299299c22183a8632c4338fa5f",
+        "5aff3507bda1579d7a21a484c385b44e6ab65ea4"
+      ],
+      "main_merge": {
+        "main_before": "2d209a6523e9e4d99ff6f74bd234707fd8ff6e3b",
+        "task_before": "5aff3507bda1579d7a21a484c385b44e6ab65ea4",
+        "merge_commit": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f"
+      }
     }
   },
   "adaptations": [
@@ -51,6 +126,34 @@
     {
       "path": "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h",
       "reason": "Inline-align99 freezes RunV2 tail offset104/100 and size112/108. Provider and consumer deploy together; old/new wire stride rejected."
+    },
+    {
+      "path": "Venus LayoutParagraphCore -> txt/Skia ParagraphStyle -> TextWrapper",
+      "reason": "CSS normal mixed words retain legal Unicode boundaries and overflow intact; explicit break modes keep encoded soft breaks. Opt-in is private to Venus; public C ABI and default Widget policy unchanged."
+    },
+    {
+      "path": "Venus paragraph enabled zero-font strut",
+      "reason": "E5 authorizes optional bit8 admission plus existing field/detail diagnostics. No zero-to-disabled substitution, no default Flutter geometry change. Preserve the canonical normal-word-break chain and all Skia blobs."
+    },
+    {
+      "path": "Venus signed atomic placeholder metrics",
+      "reason": "Opt-in capability bit7 accepts finite signed line extent/baseline rise; order rect bounds without clamping. Preserve canonical normal-word-break five-file chain; actual source fork metadata alone was insufficient."
+    },
+    {
+      "path": "Venus paragraph input reserved0/reserved1, RunV2 kind=3; txt/Skia paint blocks",
+      "reason": "Optional capability bit9 carries first-line ARGB and eligible runs without changing public struct size. PaintID range overlay after line breaking preserves metrics and ordinary Flutter behavior."
+    },
+    {
+      "path": "public header / registry / service",
+      "reason": "Union optional bits7/8/9, KnownMask 0x3fd and PopulateApi 0x3f9; retain signed finite metrics, zero-strut diagnostics and firstline reserved0/ARGB/kind3 validation. Exclude source dirty tester_main SetEngineId(1); the offline D55 entry is a separately linked test fixture."
+    },
+    {
+      "path": "Venus AbsolutePx -> txt TextStyle/ParagraphStyle -> Skia TextStyle/StrutStyle/Run/empty/strut metrics",
+      "reason": "Add default-off absolute-pixel fields; retain p4-layout bits7/8/9, signed metrics, zero-strut field/detail diagnostics, first-line bit0/ARGB/kind3. No common default metric formula changes."
+    },
+    {
+      "path": "public header / registry / service E27",
+      "reason": "Union bits7/8/9/10; KnownMask0x7fd, advertised0x7f9; paragraph flags bit0+bit1 combine; reserved1 requires bit0; strut permits finite zero font size with either height unit."
     }
   ],
   "dependencies": {
@@ -61,84 +164,108 @@
       "legacy_commit_count": 5,
       "patch_file": "skia.patch",
       "rounding_policy": "Preserve official e9ed4fc InternalLineMetrics::height() rounding on the default Flutter path. The explicitly authorized one-line legacy Run.h round restoration is migrated; Venus honorZeroHeight support remains additive and disabled by default.",
-      "patch_sha256": "78d7adf5469bfaa74871847d1dd940e3a467c9e70d3c397b395c28014d3bbbb6",
+      "patch_sha256": "8b269404012dcefd9ad004781322efb36517192605fce0e0d479eac0302d8408",
       "files": {
+        "modules/skparagraph/include/FontCollection.h": {
+          "base_blob": "ce297c224f1fc5a9840b8c914cdc237946b64e38",
+          "base_mode": "100644",
+          "patched_blob": "b9d51c3b85a048a37646276f9581bb680ea085d0",
+          "patched_mode": "100644"
+        },
         "modules/skparagraph/include/Metrics.h": {
           "base_blob": "2c9821ae2832b994b33615a67bd895cb66cba402",
           "base_mode": "100644",
           "patched_blob": "dbba25fbe09bc7486934c35b013125a3715eafdb",
           "patched_mode": "100644"
         },
+        "modules/skparagraph/include/Paragraph.h": {
+          "base_blob": "a7112c8f39e624cd139f7cde5756fbb8ccfa05ab",
+          "base_mode": "100644",
+          "patched_blob": "ca4c88c3ef11b2661f5ef478076afe6c4e57d048",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/include/ParagraphCache.h": {
+          "base_blob": "cc324425ab98efd4d6e74394d3113be23e88506f",
+          "base_mode": "100644",
+          "patched_blob": "eb10a59a40a95640fcf162d30175258eb09c3892",
+          "patched_mode": "100644"
+        },
         "modules/skparagraph/include/ParagraphStyle.h": {
           "base_blob": "0c969729b6ee976d11dcea4b9bb77ff6bb3b9c57",
           "base_mode": "100644",
-          "patched_blob": "15a8495c73868326f87c14f10dc63bcf3fff0a80",
+          "patched_blob": "6e092f62dfee285d28afd22e8138b0b66c5b7b0e",
           "patched_mode": "100644"
         },
         "modules/skparagraph/include/TextStyle.h": {
           "base_blob": "9a65834b8e9c84dae4e9a919787b122abdb54b18",
           "base_mode": "100644",
-          "patched_blob": "6774f11ddd729591abb54dee454451eb5789b308",
+          "patched_blob": "4f53f4bd6448278ba394282ac1feabfcfa464fa1",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/OneLineShaper.cpp": {
           "base_blob": "d36dfd86cb2ecd82883118d7717f0f9de1b776b3",
           "base_mode": "100644",
-          "patched_blob": "e168dfca4013bdc020fdbdba6d816395980f802f",
+          "patched_blob": "26c1cf0521a4fa88db1ba2e8bfaed7379440e98a",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/OneLineShaper.h": {
           "base_blob": "e33f9d1414bc0694707e13b748b732adb4647628",
           "base_mode": "100644",
-          "patched_blob": "3bed8c1741700384d582bd8853470ea0a9960aa9",
+          "patched_blob": "3bba22c2163757c7dcee94b6955aaf398d1f4309",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/ParagraphCache.cpp": {
           "base_blob": "e5862e1169b92ac2097ff02561bb374d7e153fdb",
           "base_mode": "100644",
-          "patched_blob": "8a3f3c9a84352a2bc395df1ed069832328a8e46e",
+          "patched_blob": "697ecab88c0638db40535f0113140de69cc56844",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/ParagraphImpl.cpp": {
           "base_blob": "9ea8267545ac92f0c918e74dbaef80ab1e559249",
           "base_mode": "100644",
-          "patched_blob": "e5bec56148dc8daf31a9c19b03b2d5c0f905c268",
+          "patched_blob": "f3df6564f915ff25d84f4ba451e8167b316e5317",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/ParagraphImpl.h": {
           "base_blob": "0fb0ba9a8e102db5140a1b219addf7cfe56df1ed",
           "base_mode": "100644",
-          "patched_blob": "092f5467fb768a47d0d09125a2ce1405966488e1",
+          "patched_blob": "b125b035fe17867f355ccedc13ed632875a2d1d4",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/Run.cpp": {
           "base_blob": "a1cfc403f8883bd403267a927b09fe9799d57b0e",
           "base_mode": "100644",
-          "patched_blob": "b0336033dd0ad08e573596348d5efd014ba0515e",
+          "patched_blob": "3a54fc9495f561fe9277fb86d75d3e633b20fbee",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/Run.h": {
           "base_blob": "8f5d709c8b56772677b21a9e2dc8a2ec38f7ef31",
           "base_mode": "100644",
-          "patched_blob": "40c7696fbe2e729f16984a2ddfd1a7d430c6929c",
+          "patched_blob": "91b78776c29d25f0a91d8db5e2bfda19103687b2",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextLine.cpp": {
           "base_blob": "bb60d70f9c34b964aa3dee799d5b846305f468de",
           "base_mode": "100644",
-          "patched_blob": "8f964266c48d06f8d3c0f28a09d9885afaf45a19",
+          "patched_blob": "e1c230296f565d488286f8e3b95ba3360c83f551",
+          "patched_mode": "100644"
+        },
+        "modules/skparagraph/src/TextLine.h": {
+          "base_blob": "9edce483807ea079c4ef77cf299e512818628082",
+          "base_mode": "100644",
+          "patched_blob": "c63433e7078bacb67d653c82c9152155239da3d8",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextStyle.cpp": {
           "base_blob": "de2dee3116103bad4c81540ddeaafc4b0018e720",
           "base_mode": "100644",
-          "patched_blob": "a1b2257ca2d7a5927daa7322f17716c4074b00ba",
+          "patched_blob": "d0d72e23fb895ec93799b29378a2f8869227044b",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextWrapper.cpp": {
           "base_blob": "718687cd2ba982fbeeae2f735abdc6e95618b724",
           "base_mode": "100644",
-          "patched_blob": "a3d028385e65e529cbed5d2c62aeb7e4ecb1ca70",
+          "patched_blob": "488d1db7780f3f9add0217e621c6f2a971ba53b8",
           "patched_mode": "100644"
         },
         "modules/skparagraph/src/TextWrapper.h": {
@@ -148,7 +275,11 @@
           "patched_mode": "100644"
         }
       },
-      "patched_revision": "2387272120f66b05d76573c14437e559bfaaa6a5"
+      "patched_revision": "d7d080fb6bf447b9098226fdbde8b729c91ef907",
+      "source_base": "e9ed4fc9f1544c58d8a9347c1fc9471d8dd7c465",
+      "source_tip": "d7d080fb6bf447b9098226fdbde8b729c91ef907",
+      "source_commit_count": 9,
+      "source_branch": "claude/venus-shared-pcache (venus/main f0d99321 + d7d080fb)"
     }
   },
   "excluded_source_changes": [
@@ -158,6 +289,55 @@
       "path": "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc",
       "diff_sha256": "15be4854de07d34188a11a487c1bed80abef32f435011a0333074bd3a780904c",
       "reason": "Older branch non-baseline placeholder mapping forced to kBaseline; pinned later contains explicit CSS top/bottom two-pass alignment. Not included automatically."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "ngine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc",
+      "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "engine/src/flutter/shell/common/venus_text_layout_p3_store_tests.cc",
+      "diff_sha256": "da611857a2dced07652def2f637942a92720b86997008aeff1db7bcc21248a9d",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "packages/flutter_tools/gradle/resolve_dependencies.gradle.kts",
+      "diff_sha256": "e7d65fb43c4b709326b958600b26b3bca4dd956aa9c841d79ff58326d8d491eb",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "packages/flutter_tools/gradle/src/main/kotlin/FlutterPlugin.kt",
+      "diff_sha256": "01ee17078df306cfc04b74a75d780854a170a1c9d456265664c3eeeccd8decdb",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "packages/flutter_tools/lib/src/runner/flutter_command.dart",
+      "diff_sha256": "1d461aa9407a75cd6badda846dd58d0cc72bbc05c192aa11da04a00cdbe2236b",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "venus/scripts/flutter_sdk/release.py",
+      "diff_sha256": "d8c7225a79c05b440a343dcddc53e65d783422f8724620e1e9ac5d119fac276d",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
+    },
+    {
+      "worktree": "/Users/cses/workspace/cses/venus/flutter",
+      "HEAD": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+      "path": "venus/scripts/flutter_sdk/releases/3.44.9/manifest.json",
+      "diff_sha256": "09f88eb3225788a5ace43cd1a0d23361b8b6f12e3ae53d66460681ef90b07f82",
+      "reason": "Uncommitted change of another writer in the main Flutter checkout; not collected (dirty content is never part of the payload)."
     }
   ],
   "delivery_policy": {
@@ -166,12 +346,18 @@
     "push_requires_explicit_user_authorization": true,
     "allow_followup_maintenance_commits": true
   },
-  "migration_scope": "Committed Flutter and Skia content plus the explicitly authorized one-line legacy Skia Run.h round restoration and the inherited Darwin Android-x86 snapshot toolchain adaptation and Venus opt-in per-run preserved-whitespace native capability/test coverage; the unrelated older node_core placeholder mapping remains deferred. Additive default-off Venus per-run PreserveNoSoftWrap mode2 and optional capability bit5, with public native mode2 regression probes; no wire-struct/required-capability/official Flutter default changes. Venus nonempty float-profile legal-break overflow and existing no-soft-wrap clearance controls; ordinary Flutter and empty-profile behavior retained. Inline-align99: paired RunV2 tail signed double and exact stride (ABI number remains 2; no binary compatibility), optional capability bit6, text mode6 -> existing native baseline_shift; default Flutter/Skia behavior unchanged. DOM 0px follows existing Baseline scalar protocol; DTO/API active zero is supported independently.",
+  "migration_scope": "Re-collected from the real tips for the same official tag 3.44.9: Flutter venus/venus-stable-3.44.9 (4418dfa5, inline-edge + parent-font) plus the worker shared SkParagraph cache 256 entries / 16MiB, the additive FlutterVenusTextLayoutTrimCachesV1 export and the Android export-list fix (ParagraphWithExclusionsV1); Skia venus/main f0d99321 (inline-edge adjacent-text break fix, not in the emoji-middle candidate) plus ParagraphCache venus shared mode. Official Flutter default paths unchanged; every Venus behaviour is reached only through Venus worker facades or explicit exported entries.",
   "native_patch": {
     "path": "native.patch",
-    "sha256": "8a09efdf22c5d64a2dcdc0be0ba35ba45cf493f9b5d16a5374d9c2e485af2d16",
-    "expected_file_count": 46,
+    "sha256": "32fe1527387613cc1306f0231c779e9caf758ec6394c88b45a2897865669ae49",
+    "expected_file_count": 57,
     "files": {
+      "engine/src/flutter/common/exported_test_symbols_mac.sym": {
+        "base_blob": "83992eeeb9d8917e4827a57a3a418cdc03ee28b7",
+        "base_mode": "100644",
+        "patched_blob": "5b2545a67190954b3b3213a57e88a4d84fe43028",
+        "patched_mode": "100644"
+      },
       "engine/src/flutter/impeller/display_list/dl_golden_unittests.cc": {
         "base_blob": "9614f9b1f82deb442a9538ad3ef3abe4371b3fce",
         "base_mode": "100644",
@@ -259,13 +445,13 @@
       "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "63a687e329cf1ec9bcf624827c4bb0eb5c84fa2f",
+        "patched_blob": "7c1d9fe53a23071b20a76628620aab39b3041fc7",
         "patched_mode": "100644"
       },
       "engine/src/flutter/lib/ui/text/venus_text_layout_node_core.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "3b5b87b32d7afc18c9b7adbbc8f3d0bcd022fc34",
+        "patched_blob": "c22f29acfb59e1e2c87b40cdc4b3ae766fb1001f",
         "patched_mode": "100644"
       },
       "engine/src/flutter/lib/ui/text/venus_text_layout_paragraph_store.cc": {
@@ -289,7 +475,7 @@
       "engine/src/flutter/shell/common/BUILD.gn": {
         "base_blob": "e1aba738f17be802e51cabf1c1b4b587ed012021",
         "base_mode": "100644",
-        "patched_blob": "ab8aa2e09df6a04cd9ef5fcd11aea054117dd808",
+        "patched_blob": "14601a8c0a4843aa661217812e4243e71ad890fa",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/engine.cc": {
@@ -304,6 +490,12 @@
         "patched_blob": "c9e29892eb81df9b4ec2a967a1579c56922f0093",
         "patched_mode": "100644"
       },
+      "engine/src/flutter/shell/common/venus_text_layout_float_parity_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "32a6d5f540ab27a12deaf8d7d6af48ee1422027b",
+        "patched_mode": "100644"
+      },
       "engine/src/flutter/shell/common/venus_text_layout_p3_paragraph_handoff_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
@@ -316,46 +508,52 @@
         "patched_blob": "7e8d876acffc0283ebdedd9dc52f769db9fe1c5b",
         "patched_mode": "100644"
       },
+      "engine/src/flutter/shell/common/venus_text_layout_parity_test_support.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "27e8caeadd2336b1ab1d0f07e860b20fbbe7a6f2",
+        "patched_mode": "100644"
+      },
       "engine/src/flutter/shell/common/venus_text_layout_registry.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "a9547e0ee5698aca815ef4e1c7d3d10925619d9f",
+        "patched_blob": "414cd4646a74ec6cc40d3e9ef4d4222a15a7a646",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_registry.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "ae3aa0029686f0bb67321902158a4f5d6a882fa6",
+        "patched_blob": "19bf7f525c42d8d48e37e6adc926b5c4084a79f7",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_service.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "8c03f972d561e245cebfc639b9e84ef19e65243e",
+        "patched_blob": "a4fda03dda99f3b16d3d318dff33d34914457977",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_service.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "47a0ff0df4a9b85ea7c0c546e4f2d1e2f742cbf3",
+        "patched_blob": "6b14cd5f16217265156e1fedf96d7f835b1e62fa",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_lifecycle_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "8d503eae99c5dee5e2b10eeade2056053d5510a2",
+        "patched_blob": "18ccc4b95635b19d2b4ba953c17e9dc6976d02aa",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_parity_tests.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "08566a1f18d3a84548cec598b8eda9c7d98c3541",
+        "patched_blob": "26b75aa77df8cb7b07abe6f100271bdf7afe3859",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_stress.cc": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "c6cb9ba80df713440807e7c5f54f257e9db6828a",
+        "patched_blob": "c25557ccf6ed37507b04a5b1d53a365de371eb6d",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/common/venus_text_layout_v2_tsan_tests.cc": {
@@ -367,7 +565,7 @@
       "engine/src/flutter/shell/platform/android/android_exports.lst": {
         "base_blob": "198bff773dd74e8ff83dd97c250915840972bac6",
         "base_mode": "100644",
-        "patched_blob": "9064686f025ec8e8c6919647f89ad37a75794eaa",
+        "patched_blob": "5aeb2a23d2cf5446038204793adbcb9c508ff180",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/platform/common/BUILD.gn": {
@@ -379,7 +577,7 @@
       "engine/src/flutter/shell/platform/common/public/flutter_venus_text_layout.h": {
         "base_blob": "0000000000000000000000000000000000000000",
         "base_mode": "000000",
-        "patched_blob": "b8f8ae19fd8030612c524176f8d294540716e393",
+        "patched_blob": "c3d55280918868ae25332488268011d77f716963",
         "patched_mode": "100644"
       },
       "engine/src/flutter/shell/platform/darwin/ios/BUILD.gn": {
@@ -391,31 +589,43 @@
       "engine/src/flutter/txt/src/skia/paragraph_builder_skia.cc": {
         "base_blob": "c611b5bd00796200b7edd6cc1ab438b0ac0d1c14",
         "base_mode": "100644",
-        "patched_blob": "92e177de480f87b7b8e8b1aa1c7cc6d02ce1fc78",
+        "patched_blob": "4fd1421576195d9acfdca4c9a97f0b5e3259dc5f",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/skia/paragraph_skia.cc": {
         "base_blob": "9c9401ae9cfc098a6c6af96965b3b74853ed113f",
         "base_mode": "100644",
-        "patched_blob": "543ddaf9d8be3da6a08df561fd65b85fd7542cde",
+        "patched_blob": "aa0bbc10b231b9753c5fa5f104f1575790bfb995",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/skia/paragraph_skia.h": {
+        "base_blob": "0d441452a15f3c12abd4fd5cb6a6b50682f2bc44",
+        "base_mode": "100644",
+        "patched_blob": "8797726e885c04d4582275b668dd5c2dc127e1d5",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/font_collection.cc": {
         "base_blob": "665ca01f0c8eabb13a74fa5272cd69d38daa0568",
         "base_mode": "100644",
-        "patched_blob": "d4c876f41eb375993087386f13a4cbe49e93f47f",
+        "patched_blob": "7676a3fe8c9a05e934c656136ff5638582b7f199",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/font_collection.h": {
         "base_blob": "6727723cf3161070054080d7fa3386b9ce5ce08a",
         "base_mode": "100644",
-        "patched_blob": "0d7c0b6d9d700527635092bea95f99bf42e9f72d",
+        "patched_blob": "bfe149df9b179c7fdc4e236e340893bb02925244",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/line_metrics.h": {
         "base_blob": "05984c6e08ef4e82c14180fc9c310a90bcbee277",
         "base_mode": "100644",
         "patched_blob": "839f841e83a8d52322040bbe7fcf0015ca1c44a7",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/paragraph.h": {
+        "base_blob": "bf0f2385e322e63ab0895aa5e461d1f7a0488c70",
+        "base_mode": "100644",
+        "patched_blob": "04a23f800e85fdbf3b4607dc88aae07ef841bea7",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/paragraph_style.cc": {
@@ -427,19 +637,55 @@
       "engine/src/flutter/txt/src/txt/paragraph_style.h": {
         "base_blob": "ed302fb61d0b89f7b7062ae3eca79c2ff8a940f9",
         "base_mode": "100644",
-        "patched_blob": "4a47737eb2fe8bdc53f20c8a3bcb02339e2ac6b7",
+        "patched_blob": "53f3d095b6f12e53b413ad1a1a09e85624c1552a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/src/txt/placeholder_run.h": {
+        "base_blob": "d8cdc0750ca1ef1af4f02b5dff32a48cd03984aa",
+        "base_mode": "100644",
+        "patched_blob": "3c8124c527344e352044c376be062a8adc688189",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/text_style.cc": {
         "base_blob": "1ca829923970bed75bd1f66940e07704694fae17",
         "base_mode": "100644",
-        "patched_blob": "702ed3c00e8c8c203c93ec51d0934a4f7d8fc17b",
+        "patched_blob": "dac5c64657db0294e774dceafa4f834c4ba07442",
         "patched_mode": "100644"
       },
       "engine/src/flutter/txt/src/txt/text_style.h": {
         "base_blob": "a2a4a2cc40324ae3cae612fd050aacd682c4bae6",
         "base_mode": "100644",
-        "patched_blob": "e7b71ddb83b0b1b01034174b999cdd6e11e9fa35",
+        "patched_blob": "a7f2e1531c83044f6940488263b924e939c906c6",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/txt/tests/font_collection_tests.cc": {
+        "base_blob": "af146bdafd900993a7b686999dfb5bde828aa404",
+        "base_mode": "100644",
+        "patched_blob": "8c77f58f8e32698ba68e4952412c37be345c16d3",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/venus_firstline_equivalence_tests/BUILD.gn": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "6545ca094c18c6de6001ea118a348b2e8dac1f5a",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/venus_firstline_equivalence_tests/coverage_font_mgr.h": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "e52947068f7a2777a36effc88c1e110bdd499645",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/venus_firstline_equivalence_tests/official_tests.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "d85a9396512e9e70ce13ccd2b4823d6d365cca8e",
+        "patched_mode": "100644"
+      },
+      "engine/src/flutter/venus_firstline_equivalence_tests/runner.cc": {
+        "base_blob": "0000000000000000000000000000000000000000",
+        "base_mode": "000000",
+        "patched_blob": "7ec50d3260b0525dab33ecfaa1153de394370a91",
         "patched_mode": "100644"
       },
       "packages/flutter/test/rendering/venus_cpp_text_layout_mvp_test.dart": {
@@ -450,7 +696,7 @@
       }
     },
     "base_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
-    "patched_commit": "b916d29afa262aad6a75041d9543a0446e111b19"
+    "patched_commit": "9fa512ceec01635bacf77ee4e37d8a57c42c1376"
   },
   "canonical_source": "Venus scripts/flutter_sdk; Flutter checkout contains generated applied code only.",
   "release_matrix": {
@@ -599,12 +845,84 @@
       "mode": "100644"
     },
     "release.py": {
-      "sha256": "623e1ad50547d54ce8dd2f95c687b7a8c8c77d3993368262dab6d85e47a694c9",
+      "sha256": "d250125fb63aae4fb663df85466adcdb807ba14c4e45fd972e7e14736c73ace4",
       "mode": "100755"
     },
     "release_sdk.sh": {
       "sha256": "aa6b021fac17bd5bd6cf9e4e854767282c4c82158cd23f856f6321c839d42e91",
       "mode": "100755"
     }
+  },
+  "first_line_color_contract": {
+    "capability": 512,
+    "paragraph_flags": "reserved0 bit0",
+    "paragraph_argb": "reserved1",
+    "eligible_run_kind": 3,
+    "struct_size_changed": false,
+    "candidate_host_only": true
+  },
+  "p4_layout_contract": {
+    "components": [
+      "negative-atomic",
+      "a-zero-strut-abi",
+      "firstline",
+      "zero-abs-line"
+    ],
+    "known_mask": 2045,
+    "advertised_capabilities": 2041,
+    "sdk_release_executed": false,
+    "candidate_only": true,
+    "baseline_perf_fixture": "E22/E28: exported main1ecde056b KnownMask OR0x400 (0x3fd->0x7fd) only; D82 completed, sources and inputs frozen; archives deleted."
+  },
+  "absolute_line_height_contract": {
+    "capability_bit": 10,
+    "run_height_mode": 3,
+    "paragraph_strut_absolute_flag_bit": 1,
+    "first_line_flag_bit": 0,
+    "reserved1": "first-line ARGB retained",
+    "abi_size_changed": false,
+    "default_off": true,
+    "status": "offline_validated_pending_independent_root_final_review"
+  },
+  "validation": {
+    "offline_this_round": "txt_unittests 14/14; venus_text_layout_v2_lifecycle_tests 19/19 (heap estimate ratio 1.06); parity failure set unchanged (2 pre-existing); stress 9 scenarios x 8 threads conserved; skparagraph_official_tests 142/142 identical output before/after Skia patch; Venus C++ 1247 cases 0 failed; Dart observer 2/2",
+    "device_this_round": "PHK110 S256B16: Native end-of-stress 218->110MB, after exit 202->92MB, first-screen engine per row -45..-49%, no regression in re-layout/jump/fr120; TrimCachesV1 device run pending (Root)",
+    "previous_candidate_validation": {
+      "validation": "validation.md",
+      "validation_receipt": "validation.json"
+    }
+  },
+  "parent_font_contract": {
+    "capability_bit": 12,
+    "run_v2_bytes": 112,
+    "sidecar": "VenusParagraphParentFontsV1",
+    "entry": "FlutterVenusTextLayoutParagraphWithParentFontsV1",
+    "default_off": true,
+    "known_mask": 8189,
+    "advertised_capabilities": 8185,
+    "source_branch": "venus/venus-stable-3.44.9",
+    "source_commit": "4418dfa52fa05b17e83219f5de8a080d5f31fa1f",
+    "sdk_build_status": "not_rebuilt_after_main_merge"
+  },
+  "shared_paragraph_cache_contract": {
+    "entry": "FlutterVenusTextLayoutTrimCachesV1",
+    "entry_kind": "independent exported symbol, not in frozen ApiV2",
+    "max_entries": 256,
+    "byte_budget_bytes": 16777216,
+    "estimate": "ParagraphCache::venusEstimateBytes",
+    "scope": "txt::FontCollection worker facades only; one instance per venus_font_epoch_; UI-thread base cache stays official",
+    "default_off_for_official_flutter": true,
+    "old_sdk_behaviour_in_venus": "dlsym miss -> NotFound, trim skipped",
+    "flutter_commits": [
+      "c3fd8d1868a012c0117fd9a43df61f69246dbb6a",
+      "87377e176d0add90745082b2a10a5334fd805cfd",
+      "9fa512ceec01635bacf77ee4e37d8a57c42c1376"
+    ],
+    "skia_commit": "d7d080fb6bf447b9098226fdbde8b729c91ef907",
+    "android_exports": [
+      "FlutterVenusTextLayoutParagraphWithExclusionsV1",
+      "FlutterVenusTextLayoutParagraphWithParentFontsV1",
+      "FlutterVenusTextLayoutTrimCachesV1"
+    ]
   }
 }
