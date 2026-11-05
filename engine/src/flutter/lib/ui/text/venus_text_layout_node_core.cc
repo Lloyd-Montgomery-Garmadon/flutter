@@ -908,10 +908,17 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
     } else if (span.end > span.begin) {
       for (const txt::LineMetrics& line : lines) {
         const size_t slice_begin = std::max(span.begin, line.start_index);
-        const size_t slice_end =
+        size_t slice_end =
             std::min(span.end, input.runs[i].preserves_whitespace
                                    ? line.end_index
                                    : line.end_excluding_whitespace);
+        // Skia's trailing empty line can reuse the preceding break's range.
+        const auto& text = input.runs[i].text;
+        while (slice_end > slice_begin &&
+               (text[slice_end - span.begin - 1u] == u'\r' ||
+                text[slice_end - span.begin - 1u] == u'\n')) {
+          --slice_end;
+        }
         if (slice_end <= slice_begin) {
           continue;
         }

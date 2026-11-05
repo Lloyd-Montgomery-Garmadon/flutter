@@ -535,6 +535,160 @@ TEST_F(VenusParagraphStoreTest,
 
 }
 
+TEST_F(VenusParagraphStoreTest, PreservedTerminalBreaksHaveNoPaintFragment) {
+  UseRobotoFixture();
+  constexpr uint64_t engine = 0x5441494c4c460001ull;
+  const auto generation = VenusTextLayoutRegistry::Register(engine, fonts_, false);
+  ASSERT_NE(generation, 0u);
+  FlutterVenusTextLayoutApiV2 api{};
+  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(engine, sizeof(api), &api),
+            kFlutterVenusV2Ok);
+  FlutterVenusTextLayoutCountersV2 counters{};
+  ASSERT_EQ(api.get_counters_v2(api.context, sizeof(counters), &counters),
+            kFlutterVenusV2Ok);
+  struct Case { const char* name; const char* text; bool split_crlf = false; };
+  uint64_t token = 0x5441494c0000ull;
+  for (const Case& sample : {
+           Case{"markdown-code-lf", "const value = 1\n"},
+           Case{"crlf", "A\r\n"}, Case{"cr", "A\r"},
+           Case{"split-crlf", "A\r\n", true},
+           Case{"spaces-before-lf", "A  \n"},
+           Case{"space-only-line", "  \n"},
+           Case{"interior-space-only-line", "A\n  \n"},
+           Case{"only-lf", "\n"}, Case{"only-crlf", "\r\n"},
+           Case{"consecutive-lf", "A\n\n"}, Case{"only-lfs", "\n\n"},
+           Case{"empty", ""}, Case{"no-break", "A"},
+           Case{"trailing-spaces", "A  "}, Case{"spaces", "  "}}) {
+    for (uint16_t mode : {uint16_t(kFlutterVenusV2WhitespaceNormal),
+                          uint16_t(kFlutterVenusV2WhitespacePreserve),
+                          uint16_t(kFlutterVenusV2WhitespacePreserveNoSoftWrap)}) {
+      SCOPED_TRACE(sample.name);
+      SCOPED_TRACE(mode);
+      const std::string text(sample.text);
+      const size_t split = sample.split_crlf ? text.size() - 1u : text.size();
+      venus_text_layout::ParagraphInputView input;
+      input.max_width = 1.0e7;
+      input.strut_enabled = true;
+      input.strut_font_family = "Roboto";
+      input.strut_font_size = 16.0;
+      input.strut_font_weight = 400;
+      input.strut_height_multiple = 1.6;
+      std::vector<FlutterVenusTextLayoutRunV2> runs;
+      size_t offset = 0u;
+      for (const size_t end : (sample.split_crlf
+                                  ? std::vector<size_t>{split, text.size()}
+                                  : std::vector<size_t>{text.size()})) {
+        venus_text_layout::ParagraphRunView run;
+        run.text.assign(text.begin() + offset, text.begin() + end);
+        run.font_family = "Roboto";
+        run.font_size = 16.0;
+        run.height_multiple = 1.6;
+        run.height_declared = true;
+        run.preserves_whitespace = mode != kFlutterVenusV2WhitespaceNormal;
+        run.no_soft_wrap = mode == kFlutterVenusV2WhitespacePreserveNoSoftWrap;
+        input.runs.push_back(run);
+        FlutterVenusTextLayoutRunV2 wire_run{};
+        wire_run.struct_size = sizeof(wire_run);
+        wire_run.kind = kFlutterVenusV2RunKindText;
+        wire_run.text_offset = offset;
+        wire_run.text_length = end - offset;
+        wire_run.font_family_length = 6u;
+        wire_run.font_weight = 400u;
+        wire_run.font_size = 16.0;
+        wire_run.height_mode = 2u;
+        wire_run.height = 1.6;
+        wire_run.whitespace_mode = mode;
+        runs.push_back(wire_run);
+        offset = end;
+      }
+      venus_text_layout::ParagraphMetrics metrics;
+      std::unique_ptr<txt::Paragraph> artifact;
+      const auto failure = venus_text_layout::LayoutParagraphCore(
+          input, CloneForWorker(), false, &metrics, &artifact);
+      EXPECT_TRUE(failure.ok()) << "field=" << static_cast<int>(failure.field)
+                                << " detail=" << static_cast<int>(failure.detail);
+      if (artifact) {
+        size_t fragment = 0u;
+        offset = 0u;
+        for (size_t i = 0u; i < input.runs.size(); ++i) {
+          const auto& run = input.runs[i];
+          size_t begin = 0u;
+          while (begin < run.text.size()) {
+            const size_t newline = run.text.find_first_of(u"\r\n", begin);
+            size_t end = newline == std::u16string::npos ? run.text.size() : newline;
+            if (!run.preserves_whitespace) {
+              while (end > begin && (run.text[end - 1u] == u' ' ||
+                                     run.text[end - 1u] == u'\t')) --end;
+            }
+            if (end > begin) {
+              const auto boxes = artifact->GetRectsForRange(
+                  offset + begin, offset + end, txt::Paragraph::RectHeightStyle::kTight,
+                  txt::Paragraph::RectWidthStyle::kTight);
+              for (const auto& box : boxes) {
+                EXPECT_LT(fragment, metrics.fragments.size());
+                if (fragment < metrics.fragments.size()) {
+                  const auto& actual = metrics.fragments[fragment];
+                  EXPECT_EQ(actual.run_index, i);
+                  const int line = artifact->GetLineNumberAt(offset + begin);
+                  EXPECT_GE(line, 0);
+                  EXPECT_EQ(actual.line_number, static_cast<uint32_t>(line));
+                  EXPECT_DOUBLE_EQ(actual.left, box.rect.fLeft);
+                  EXPECT_DOUBLE_EQ(actual.right, box.rect.fRight);
+                  EXPECT_DOUBLE_EQ(actual.top, box.rect.fTop);
+                  EXPECT_DOUBLE_EQ(actual.bottom, box.rect.fBottom);
+                }
+                ++fragment;
+              }
+            }
+            if (newline == std::u16string::npos) break;
+            begin = newline + 1u;
+          }
+          offset += run.text.size();
+        }
+        EXPECT_EQ(metrics.fragments.size(), fragment);
+      }
+      FlutterVenusTextLayoutLineMetricV2 lines[16]{};
+      FlutterVenusTextLayoutFragmentRectV2 rects[16]{};
+      FlutterVenusTextLayoutParagraphInputV2 wire{};
+      wire.struct_size = sizeof(wire);
+      wire.abi_version = FLUTTER_VENUS_TEXT_LAYOUT_ABI_V2;
+      wire.runs = runs.data(); wire.run_count = runs.size();
+      wire.text = reinterpret_cast<const uint8_t*>(text.data());
+      wire.text_length = text.size();
+      wire.font_families = reinterpret_cast<const uint8_t*>("Roboto");
+      wire.font_families_length = 6u;
+      wire.text_direction = 1u; wire.text_align = 5u; wire.soft_wrap = 1u;
+      wire.max_width = input.max_width;
+      wire.strut_enabled = 1u; wire.strut_font_family_length = 6u;
+      wire.strut_font_weight = 400u; wire.strut_font_size = 16.0;
+      wire.strut_height_multiple = 1.6;
+      wire.line_metrics_out = lines; wire.line_metric_capacity = 16u;
+      wire.fragment_rects_out = rects; wire.fragment_rect_capacity = 16u;
+      wire.paragraph_token = ++token;
+      FlutterVenusTextLayoutParagraphOutputV2 out{}; out.struct_size = sizeof(out);
+      uint32_t slot = 0u; uint64_t lease = 0u;
+      EXPECT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);
+      EXPECT_EQ(FlutterVenusTextLayoutParagraphV2(engine, slot, lease, &wire, &out),
+                kFlutterVenusV2Ok) << "field=" << out.error_field_id
+                                  << " detail=" << out.error_detail;
+      EXPECT_EQ(out.status, kFlutterVenusV2Ok);
+      EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
+      auto claimed = ParagraphStore::Instance().Claim(token, input.max_width,
+                                                      counters.font_epoch);
+      EXPECT_NE(claimed, nullptr);
+      if (artifact && claimed) {
+        EXPECT_EQ(out.truncated, 0u);
+        EXPECT_EQ(out.line_metric_count, metrics.lines.size());
+        EXPECT_EQ(out.fragment_rect_count, metrics.fragments.size());
+        EXPECT_PRED2(SameBits, claimed->GetHeight(), artifact->GetHeight());
+        EXPECT_PRED2(SameBits, claimed->GetLongestLine(), artifact->GetLongestLine());
+      }
+    }
+  }
+  api.release_context(api.context);
+  VenusTextLayoutRegistry::Unregister(engine, generation);
+}
+
 TEST_F(VenusParagraphStoreTest, TrailingLineBreakHasNoPaintFragment) {
   venus_text_layout::ParagraphInputView input;
   input.max_width = 374.0;
