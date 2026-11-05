@@ -10,9 +10,6 @@ _Spawn
 _LoadLibraryFromKernel
 _LookupEntryPoint
 _ForceShutdownIsolate
-<<<<<<< HEAD
-=======
->>>>>>> claude/venus-stable-3.44.9-sdk-v5
 _FlutterVenusTextLayoutArtifactOwnerBeginV1
 _FlutterVenusTextLayoutArtifactOwnerBindSlotV1
 _FlutterVenusTextLayoutArtifactOwnerReleaseV1
