@@ -24,12 +24,20 @@
 #include <thread>
 #include <vector>
 
+#include "flutter/fml/build_config.h"
+#if defined(FML_OS_MACOSX)
+#include <malloc/malloc.h>
+#endif
 #include "flutter/fml/icu_util.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/lib/ui/text/venus_text_layout_paragraph_store.h"
 #include "flutter/shell/common/venus_text_layout_registry.h"
 #include "flutter/shell/common/venus_text_layout_service.h"
 #include "gtest/gtest.h"
+#include "third_party/skia/modules/skparagraph/include/ParagraphCache.h"  // nogncheck
+#include "txt/paragraph_builder.h"
+#include "txt/paragraph_style.h"
+#include "txt/text_style.h"
 
 namespace flutter {
 namespace testing {
@@ -111,6 +119,7 @@ class Fixture {
 
   FlutterVenusTextLayoutApiV2& api() { return api_; }
   VenusTextLayoutService* service() { return service_; }
+  const std::shared_ptr<FontCollection>& fonts() { return fonts_; }
   FlutterVenusTextLayoutCountersV2 Counters() {
     FlutterVenusTextLayoutCountersV2 c{};
     EXPECT_EQ(api_.get_counters_v2(api_.context, sizeof(c), &c),
@@ -990,6 +999,375 @@ TEST(VenusTextLayoutLifecycleV2, ConcurrentLeasesAreDisjointAndAllReturn) {
     EXPECT_EQ(c.active_slot_calls, 0u);
     EXPECT_EQ(c.accepted_total, c.completed_total);
   })) << "并行 lease 用例挂起";
+}
+
+}  // namespace testing
+}  // namespace flutter
+
+// ---------------------------------------------------------------------------
+// worker 共享段落缓存 (txt::FontCollection::CloneForVenusWorker +
+// skia::textlayout::ParagraphCache::venusConfigureShared) 与
+// FlutterVenusTextLayoutTrimCachesV1。
+// ---------------------------------------------------------------------------
+namespace flutter {
+namespace testing {
+namespace {
+
+using SharedCacheStats = skia::textlayout::ParagraphCache::VenusStats;
+
+// 当前字体代的共享缓存：任何一份新克隆门面都指向它。返回的裸指针由 base 的
+// shared_ptr 保活，与这份临时克隆的寿命无关。
+skia::textlayout::ParagraphCache* SharedCacheOf(
+    const std::shared_ptr<FontCollection>& fonts) {
+  return fonts->GetFontCollection()
+      ->CloneForVenusWorker(nullptr)
+      ->CreateSktFontCollection()
+      ->getParagraphCache();
+}
+
+SharedCacheStats StatsOf(skia::textlayout::ParagraphCache* cache) {
+  SharedCacheStats stats;
+  cache->venusGetStats(&stats);
+  return stats;
+}
+
+// 直接用一份 worker 门面排一段文本，与 LayoutParagraphCore 走同一条
+// ParagraphBuilder 路。返回排好的段落，析构后缓存是该 Run 数据的唯一持有者。
+std::unique_ptr<txt::Paragraph> ShapeWith(
+    const std::shared_ptr<txt::FontCollection>& facade,
+    const std::string& text,
+    double width = 200.0) {
+  txt::ParagraphStyle paragraph_style;
+  auto builder =
+      txt::ParagraphBuilder::CreateSkiaBuilder(paragraph_style, facade, false);
+  txt::TextStyle style;
+  style.font_families = {"Roboto"};
+  style.font_size = 16.0;
+  style.locale = "en-US";
+  builder->PushStyle(style);
+  builder->AddText(reinterpret_cast<const uint8_t*>(text.data()), text.size());
+  auto paragraph = builder->Build();
+  paragraph->Layout(width);
+  return paragraph;
+}
+
+// 同长度、不同内容的行：字节估算只随结构走，等长行估算相等，便于算预算边界。
+std::string RowText(size_t index) {
+  std::string text = "venus shared cache row ";
+  text += static_cast<char>('a' + (index % 26));
+  text += static_cast<char>('a' + ((index / 26) % 26));
+  return text;
+}
+
+// 一份门面 + 一个独立配置的共享缓存，不经过 base 的 256/16MiB 常量。
+struct ConfiguredFacade {
+  std::shared_ptr<skia::textlayout::ParagraphCache> cache;
+  std::shared_ptr<txt::FontCollection> facade;
+  ConfiguredFacade(const std::shared_ptr<FontCollection>& fonts,
+                   int max_entries,
+                   size_t byte_budget)
+      : cache(std::make_shared<skia::textlayout::ParagraphCache>()),
+        facade(fonts->GetFontCollection()->CloneForVenusWorker(nullptr)) {
+    cache->venusConfigureShared(max_entries, byte_budget);
+    facade->CreateSktFontCollection()->setVenusSharedParagraphCache(cache);
+  }
+  SharedCacheStats Stats() { return StatsOf(cache.get()); }
+};
+
+}  // namespace
+
+TEST(VenusTextLayoutLifecycleV2, SharedParagraphCacheIsOneInstancePerFontEpoch) {
+  Fixture f;
+  const auto base = f.fonts()->GetFontCollection();
+  uint64_t epoch_a = 0u;
+  uint64_t epoch_b = 0u;
+  const auto clone_a = base->CloneForVenusWorker(&epoch_a);
+  const auto clone_b = base->CloneForVenusWorker(&epoch_b);
+  auto* cache_a = clone_a->CreateSktFontCollection()->getParagraphCache();
+  auto* cache_b = clone_b->CreateSktFontCollection()->getParagraphCache();
+  EXPECT_EQ(epoch_a, epoch_b);
+  EXPECT_EQ(cache_a, cache_b) << "同一字体代的两份克隆必须共用一份段落缓存";
+  EXPECT_NE(cache_a, base->CreateSktFontCollection()->getParagraphCache())
+      << "UI 线程 base 自己的缓存不参与共享";
+  EXPECT_TRUE(StatsOf(cache_a).shared);
+  EXPECT_EQ(StatsOf(cache_a).maxEntries, 256);
+  EXPECT_EQ(StatsOf(cache_a).byteBudget, 16u * 1024u * 1024u);
+  EXPECT_FALSE(StatsOf(base->CreateSktFontCollection()->getParagraphCache()).shared);
+
+  // 共享缓存里放一条，再让字体换代：新克隆拿到新实例（空），旧克隆仍指旧实例。
+  ShapeWith(clone_a, RowText(0));
+  EXPECT_EQ(StatsOf(cache_a).count, 1);
+  base->ClearFontFamilyCache();  // ++venus_font_epoch_
+  uint64_t epoch_c = 0u;
+  const auto clone_c = base->CloneForVenusWorker(&epoch_c);
+  auto* cache_c = clone_c->CreateSktFontCollection()->getParagraphCache();
+  EXPECT_EQ(epoch_c, epoch_a + 1u);
+  EXPECT_NE(cache_c, cache_a);
+  EXPECT_EQ(StatsOf(cache_c).count, 0);
+  EXPECT_EQ(clone_a->CreateSktFontCollection()->getParagraphCache(), cache_a);
+  EXPECT_EQ(StatsOf(cache_a).count, 1) << "旧克隆的旧实例不受新代影响";
+  // 旧实例只由旧克隆持有：释放它们后 base 不再引用，不泄漏。
+}
+
+TEST(VenusTextLayoutLifecycleV2, SharedParagraphCacheByteBudgetEdges) {
+  Fixture f;
+  // 先量一条的估算字节。
+  uint64_t one = 0u;
+  {
+    ConfiguredFacade c(f.fonts(), 4, 0u);
+    ShapeWith(c.facade, RowText(0));
+    const auto s = c.Stats();
+    ASSERT_EQ(s.inserts, 1u);
+    ASSERT_EQ(s.count, 1);
+    ASSERT_GT(s.bytes, 0u);
+    one = s.bytes;
+    // 等长行估算相等（估算只随 Run/Cluster/码元数走）。
+    ShapeWith(c.facade, RowText(1));
+    EXPECT_EQ(c.Stats().bytes, 2u * one);
+  }
+  {
+    SCOPED_TRACE("single entry larger than the whole budget");
+    ConfiguredFacade c(f.fonts(), 4, one / 2u);
+    ShapeWith(c.facade, RowText(0));
+    auto s = c.Stats();
+    EXPECT_EQ(s.count, 1) << "超预算的单条仍入缓存（否则长行永远没有命中）";
+    EXPECT_EQ(s.bytes, one);
+    EXPECT_GT(s.bytes, s.byteBudget);
+    ShapeWith(c.facade, RowText(1));
+    s = c.Stats();
+    EXPECT_EQ(s.count, 1) << "下一次插入先把它淘汰";
+    EXPECT_EQ(s.evictedCount, 1u);
+    EXPECT_EQ(s.evictedBytes, one);
+    EXPECT_EQ(s.bytes, one);
+  }
+  {
+    SCOPED_TRACE("budget exactly one entry");
+    ConfiguredFacade c(f.fonts(), 4, one);
+    ShapeWith(c.facade, RowText(0));
+    EXPECT_EQ(c.Stats().count, 1) << "bytes == budget 不算超";
+    ShapeWith(c.facade, RowText(1));
+    const auto s = c.Stats();
+    EXPECT_EQ(s.count, 1);
+    EXPECT_EQ(s.evictedCount, 1u);
+    EXPECT_EQ(s.bytes, one);
+  }
+  {
+    SCOPED_TRACE("budget exactly two entries, LRU order");
+    ConfiguredFacade c(f.fonts(), 4, 2u * one);
+    ShapeWith(c.facade, RowText(0));
+    ShapeWith(c.facade, RowText(1));
+    EXPECT_EQ(c.Stats().count, 2);
+    ShapeWith(c.facade, RowText(0));  // 命中，row0 变 MRU
+    EXPECT_EQ(c.Stats().hits, 1u);
+    ShapeWith(c.facade, RowText(2));  // 淘汰 LRU = row1
+    auto s = c.Stats();
+    EXPECT_EQ(s.count, 2);
+    EXPECT_EQ(s.evictedCount, 1u);
+    EXPECT_EQ(s.bytes, 2u * one);
+    ShapeWith(c.facade, RowText(0));
+    EXPECT_EQ(c.Stats().hits, 2u) << "row0 必须还在";
+    ShapeWith(c.facade, RowText(1));
+    EXPECT_EQ(c.Stats().hits, 2u) << "row1 必须已被淘汰";
+  }
+  {
+    SCOPED_TRACE("count cap wins when the budget is off");
+    ConfiguredFacade c(f.fonts(), 4, 0u);
+    for (size_t i = 0; i < 6; ++i) ShapeWith(c.facade, RowText(i));
+    const auto s = c.Stats();
+    EXPECT_EQ(s.count, 4);
+    EXPECT_EQ(s.evictedCount, 2u);
+    EXPECT_EQ(s.bytes, 4u * one);
+    EXPECT_EQ(s.inserts, 6u);
+  }
+  {
+    SCOPED_TRACE("reset returns to zero and stays usable");
+    ConfiguredFacade c(f.fonts(), 4, 2u * one);
+    ShapeWith(c.facade, RowText(0));
+    ShapeWith(c.facade, RowText(1));
+    c.cache->reset();
+    auto s = c.Stats();
+    EXPECT_EQ(s.count, 0);
+    EXPECT_EQ(s.bytes, 0u);
+    ShapeWith(c.facade, RowText(0));
+    ShapeWith(c.facade, RowText(0));
+    s = c.Stats();
+    EXPECT_EQ(s.count, 1);
+    EXPECT_EQ(s.bytes, one);
+    EXPECT_EQ(s.hits, 1u);
+  }
+}
+
+#if defined(FML_OS_MACOSX)
+TEST(VenusTextLayoutLifecycleV2, SharedParagraphCacheEstimateTracksHeap) {
+  // 估算字节 vs 真实堆增量：把 N 条排进缓存并丢掉段落，缓存是唯一持有者。
+  // 第一遍先把 ICU/HarfBuzz/字形缓存暖起来，第二遍才量。
+  Fixture f;
+  constexpr size_t kRows = 48;
+  ConfiguredFacade c(f.fonts(), 64, 0u);
+  for (size_t i = 0; i < kRows; ++i) ShapeWith(c.facade, RowText(i));
+  c.cache->reset();
+  ASSERT_EQ(c.Stats().bytes, 0u);
+  const size_t heap_before = mstats().bytes_used;
+  for (size_t i = 0; i < kRows; ++i) ShapeWith(c.facade, RowText(i));
+  const size_t heap_after = mstats().bytes_used;
+  const auto s = c.Stats();
+  ASSERT_EQ(s.count, static_cast<int>(kRows));
+  const double actual = static_cast<double>(heap_after - heap_before);
+  const double estimate = static_cast<double>(s.bytes);
+  std::cout << "[pcache] rows=" << kRows << " estimate_bytes=" << s.bytes
+            << " heap_delta_bytes=" << (heap_after - heap_before)
+            << " ratio=" << (actual / estimate) << std::endl;
+  EXPECT_GT(estimate, 0.0);
+  EXPECT_GE(actual / estimate, 0.5) << "估算比真实堆增量大一倍以上";
+  EXPECT_LE(actual / estimate, 2.0) << "估算不到真实堆增量的一半";
+}
+#endif
+
+TEST(VenusTextLayoutLifecycleV2, TrimCachesEmptiesSharedCacheAndStaysUsable) {
+  Fixture f;
+  auto* cache = SharedCacheOf(f.fonts());
+  ASSERT_EQ(LeaseAndRun(f.api(), 3u), kFlutterVenusV2Ok);
+  auto s = StatsOf(cache);
+  EXPECT_EQ(s.inserts, 1u);
+  EXPECT_EQ(s.hits, 2u);
+  EXPECT_EQ(s.count, 1);
+  const uint64_t bytes = s.bytes;
+  EXPECT_GT(bytes, 0u);
+
+  EXPECT_EQ(f.service()->TrimCaches(0u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(cache).count, 1) << "level 0 无操作";
+  EXPECT_EQ(f.service()->TrimCaches(1u), kFlutterVenusV2Ok);
+  s = StatsOf(cache);
+  EXPECT_EQ(s.count, 0);
+  EXPECT_EQ(s.bytes, 0u);
+  EXPECT_EQ(s.evictedCount, 0u) << "trim 不记成淘汰";
+
+  ASSERT_EQ(LeaseAndRun(f.api(), 2u), kFlutterVenusV2Ok);
+  s = StatsOf(cache);
+  EXPECT_EQ(s.inserts, 2u) << "trim 后同一段落重新入缓存";
+  EXPECT_EQ(s.hits, 3u);
+  EXPECT_EQ(s.count, 1);
+  EXPECT_EQ(s.bytes, bytes);
+  EXPECT_EQ(f.service()->TrimCaches(7u), kFlutterVenusV2Ok) << "任何 >=1 都清";
+  EXPECT_EQ(StatsOf(cache).count, 0);
+}
+
+TEST(VenusTextLayoutLifecycleV2, TrimCachesThroughRegistryAndExportedSymbol) {
+  constexpr uint64_t kEngineId = 7701u;
+  auto fonts = std::make_shared<FontCollection>();
+  fonts->SetupDefaultFontManager(0u);
+  fonts->RegisterTestFonts();
+  const uint64_t generation =
+      VenusTextLayoutRegistry::Register(kEngineId, fonts, false);
+  ASSERT_NE(generation, 0u);
+  FlutterVenusTextLayoutApiV2 api{};
+  ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
+            kFlutterVenusV2Ok);
+  auto* cache = SharedCacheOf(fonts);
+  ASSERT_EQ(LeaseAndRun(api, 2u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(cache).count, 1);
+
+  EXPECT_EQ(FlutterVenusTextLayoutTrimCachesV1(0u, 1u),
+            kFlutterVenusV2InvalidArgument);
+  EXPECT_EQ(FlutterVenusTextLayoutTrimCachesV1(kEngineId + 1u, 1u),
+            kFlutterVenusV2NotFound);
+  EXPECT_EQ(StatsOf(cache).count, 1) << "错 engine 不能清到别人";
+  EXPECT_EQ(FlutterVenusTextLayoutTrimCachesV1(kEngineId, 1u),
+            kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(cache).count, 0);
+  EXPECT_EQ(StatsOf(cache).bytes, 0u);
+  ASSERT_EQ(LeaseAndRun(api, 1u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(cache).count, 1);
+
+  api.release_context(api.context);
+  VenusTextLayoutRegistry::Unregister(kEngineId, generation);
+  EXPECT_EQ(FlutterVenusTextLayoutTrimCachesV1(kEngineId, 1u),
+            kFlutterVenusV2NotFound);
+}
+
+TEST(VenusTextLayoutLifecycleV2, FontEpochChangeStartsFreshSharedCache) {
+  Fixture f;
+  auto* before = SharedCacheOf(f.fonts());
+  ASSERT_EQ(LeaseAndRun(f.api(), 1u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(before).count, 1);
+
+  // ReloadFonts 只换 slot 门面与 service 自己的 epoch，base 字体没变：缓存实例
+  // 和条目都保留（否则每次 reload 都白白丢掉命中）。
+  EXPECT_EQ(f.service()->ReloadFonts(), kFlutterVenusV2Ok);
+  EXPECT_EQ(SharedCacheOf(f.fonts()), before);
+  EXPECT_EQ(StatsOf(before).count, 1);
+  ASSERT_EQ(LeaseAndRun(f.api(), 1u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(before).hits, 1u);
+
+  // base 字体换代（注册动态字体 / 清字体表都会走这里）：下一次 AcquireSlot
+  // 按 epoch 重克隆，拿到新实例；旧实例里的旧字体 Run 不会被新代命中。
+  f.fonts()->GetFontCollection()->ClearFontFamilyCache();
+  ASSERT_EQ(LeaseAndRun(f.api(), 2u), kFlutterVenusV2Ok);
+  auto* after = SharedCacheOf(f.fonts());
+  EXPECT_NE(after, before);
+  auto s = StatsOf(after);
+  EXPECT_EQ(s.inserts, 1u);
+  EXPECT_EQ(s.hits, 1u);
+  EXPECT_EQ(s.count, 1);
+  EXPECT_EQ(f.service()->TrimCaches(1u), kFlutterVenusV2Ok);
+  EXPECT_EQ(StatsOf(after).count, 0) << "trim 作用于当前代的实例";
+}
+
+TEST(VenusTextLayoutLifecycleV2, TrimWhileWorkersShapeStaysConservedAndSafe) {
+  // 4 条 worker 用 6 条文本循环（cap 远大于 6：命中为主），主线程持续 trim；
+  // trim 摘下的节点在锁外析构，正在拷贝命中值的 worker 必须不受影响。
+  Fixture f;
+  constexpr uint32_t kWorkers = 4u;
+  constexpr uint32_t kPerWorker = 1500u;
+  std::atomic<uint32_t> failures{0u};
+  std::atomic<uint32_t> completed{0u};
+  ASSERT_TRUE(RunWithGuard([&] {
+    std::vector<std::thread> workers;
+    for (uint32_t w = 0; w < kWorkers; ++w) {
+      workers.emplace_back([&, w] {
+        uint32_t slot = 0u;
+        uint64_t token = 0u;
+        if (f.api().acquire_slot(f.api().context, &slot, &token) !=
+            kFlutterVenusV2Ok) {
+          failures.fetch_add(1u);
+          return;
+        }
+        Node node;
+        for (uint32_t i = 0; i < kPerWorker; ++i) {
+          node.text = RowText((i + w) % 6u);
+          FlutterVenusTextLayoutInputV2 in = node.Input();
+          FlutterVenusTextLayoutOutputV2 out{};
+          if (f.api().layout_text_node_sync_v2(f.api().context, slot, token,
+                                               &in, &out) != kFlutterVenusV2Ok ||
+              out.status != kFlutterVenusV2Ok || !(out.paragraph_height > 0.0)) {
+            failures.fetch_add(1u);
+          }
+          completed.fetch_add(1u);
+        }
+        if (f.api().release_slot(f.api().context, slot, token) !=
+            kFlutterVenusV2Ok) {
+          failures.fetch_add(1u);
+        }
+      });
+    }
+    uint32_t trims = 0u;
+    while (completed.load() < kWorkers * kPerWorker) {
+      if (f.service()->TrimCaches(1u) != kFlutterVenusV2Ok) failures.fetch_add(1u);
+      ++trims;
+      std::this_thread::sleep_for(std::chrono::microseconds(200));
+    }
+    for (auto& t : workers) t.join();
+    EXPECT_GT(trims, 10u) << "trim 没有和排版真正交错";
+  }));
+  EXPECT_EQ(failures.load(), 0u);
+  const auto c = f.Counters();
+  EXPECT_EQ(c.accepted_total, c.completed_total);
+  EXPECT_EQ(c.active_slot_calls, 0u);
+  EXPECT_EQ(c.leased_slots, 0u);
+  const auto s = StatsOf(SharedCacheOf(f.fonts()));
+  EXPECT_EQ(s.requests, static_cast<uint64_t>(kWorkers * kPerWorker));
+  EXPECT_EQ(s.hits + s.misses, s.requests);
+  EXPECT_GT(s.hits, 0u);
 }
 
 }  // namespace testing
