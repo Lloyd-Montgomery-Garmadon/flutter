@@ -18,7 +18,7 @@ vars = {
   # 历史补丁线见该仓库 migration/* 标签；venus/main 为最新累积状态。
   'venus_skia_git': 'file:///Users/cses/workspace/cses/venus/skia',
   'llvm_git': 'https://llvm.googlesource.com',
-  'skia_revision': 'f0d9932137d5358129fdaab502f198257a307ea8',
+  'skia_revision': 'd7d080fb6bf447b9098226fdbde8b729c91ef907',
 
   # WARNING: DO NOT EDIT canvaskit_cipd_instance MANUALLY
   # See `lib/web_ui/README.md` for how to roll CanvasKit to a new version.
