@@ -85,7 +85,8 @@ typedef enum FlutterVenusTextLayoutCapabilityV2 {
   kFlutterVenusV2CapabilityFirstLineColor  = 1u << 9,
   kFlutterVenusV2CapabilityAbsoluteLineHeight = 1u << 10,
   kFlutterVenusV2CapabilityInlineEdge = 1u << 11,
-  kFlutterVenusV2CapabilityKnownMask       = 0xffdu,
+  kFlutterVenusV2CapabilityTextMiddleParentFont = 1u << 12,
+  kFlutterVenusV2CapabilityKnownMask       = 0x1ffdu,
   // §8 P7 冻结的 RequiredSyncWinner: Sync | FontFingerprint。
   // ItemTiming 是 benchmark/证据用的可选能力, 收敛之后不再是生产必需项 ——
   // 它仍在 KnownMask 里, 带着它来注册照常接受。
@@ -447,6 +448,7 @@ typedef struct FlutterVenusTextLayoutRunV2 {
   /// 原 `uint32_t reserved1` 的前半 (偏移 100, 宽 2; 与 reserved0 -> height_mode 同一处置)。
   /// kind=Text 专用: 摊成这个 run 的**非替换 inline 包装盒**的 CSS vertical-align,
   /// 0=baseline / 1=top / 3=bottom (对齐行盒) / 6=length (有符号 CSS px)。
+  /// 2=middle requires the optional per-run parent-font sidecar entry.
   /// InlineEdge 专用: InlineEdgeSideV2 (0=end / 1=start)，不作垂直对齐。
   /// 其余值与其他非文本 run 上的非 0 均为非法参数。
   uint16_t text_vertical_align;
@@ -597,6 +599,38 @@ FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithExclusionsV1(
     const VenusParagraphExclusionsV1* exclusions,
     FlutterVenusTextLayoutParagraphOutputV2* output);
 
+/// Borrowed parent font for exactly one middle-aligned Text run. Family ranges
+/// address ParagraphInputV2.font_families; no RunV2 field is repurposed.
+typedef struct VenusTextParentFontV1 {
+  uint32_t run_index;
+  uint32_t font_family_offset;
+  uint32_t font_family_length;
+  uint32_t font_weight;
+  uint16_t font_style;
+  uint16_t reserved;
+  double font_size;
+} VenusTextParentFontV1;
+
+typedef struct VenusParagraphParentFontsV1 {
+  uint32_t struct_size;
+  uint32_t abi_version;  ///< 1
+  uint32_t count;
+  uint32_t reserved;
+  const VenusTextParentFontV1* fonts;
+} VenusParagraphParentFontsV1;
+
+/// Optional middle alignment. Exactly one ordered sidecar entry is required per
+/// middle Text run; all other runs have none. Null exclusions means no profile.
+/// Sidecar memory is copied synchronously, never retained in paint artifacts.
+FLUTTER_EXPORT int32_t FlutterVenusTextLayoutParagraphWithParentFontsV1(
+    uint64_t engine_id,
+    uint32_t slot,
+    uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts,
+    FlutterVenusTextLayoutParagraphOutputV2* output);
+
 /* Version-scoped ownership for prelaid Paragraph artifacts. Begin must happen
    before the first owned deposit. Bind attaches an acquired slot lease to the
    owner; Seal succeeds only after every bound lease has been returned. Claim
@@ -620,6 +654,14 @@ FLUTTER_EXPORT int32_t FlutterVenusTextLayoutArtifactOwnerSealV1(
 FLUTTER_EXPORT void FlutterVenusTextLayoutArtifactOwnerReleaseV1(
     uint64_t engine_id,
     uint64_t owner_id);
+
+/* 清空 worker 线程共用的 SkParagraph 段落缓存（页面退出、内存压力）。
+   独立导出符号，不进已冻结的 ApiV2：dlsym 取不到 = 这版引擎没有这份缓存，
+   调用方跳过即可。level 0 无操作；>= 1 清缓存并返回 Ok。缓存对象保留，之后
+   照常命中/插入；与正在排版的 worker 并发安全。未注册的 engine_id 返回
+   NotFound，engine_id 为 0 返回 InvalidArgument。 */
+FLUTTER_EXPORT int32_t FlutterVenusTextLayoutTrimCachesV1(uint64_t engine_id,
+                                                          uint32_t level);
 
 FLUTTER_EXPORT int32_t
 FlutterVenusTextLayoutGetApiV2(uint64_t engine_id,

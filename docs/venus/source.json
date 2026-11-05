@@ -2,12 +2,12 @@
   "canonical_source": "Venus scripts/flutter_sdk",
   "official_tag": "3.44.9",
   "official_commit": "6b182d2c7585eba26d4edce0f97630effd256c33",
-  "manifest_sha256": "30ca9aaa6b063519196736455d04266016ac7561eaa48c515a351a02c8b21eb5",
-  "native_patch_sha256": "8a09efdf22c5d64a2dcdc0be0ba35ba45cf493f9b5d16a5374d9c2e485af2d16",
-  "skia_patch_sha256": "78d7adf5469bfaa74871847d1dd940e3a467c9e70d3c397b395c28014d3bbbb6",
+  "manifest_sha256": "fc3d812fca4c75738dbd0a1f82c692bb4b3be20d1ad7f68548ab36cd6adb2828",
+  "native_patch_sha256": "32fe1527387613cc1306f0231c779e9caf758ec6394c88b45a2897865669ae49",
+  "skia_patch_sha256": "8b269404012dcefd9ad004781322efb36517192605fce0e0d479eac0302d8408",
   "release_entry_sha256": "1961fa34e0a871af82edbe9890542bd8922660159b0c412ec16459309632d490",
   "release_readme_sha256": "24e3c5c5ea949c087db0d8d6ff607425ee62a53edae7c7a62fe5fc56480a837c",
   "release_env_example_sha256": "50dd31442c9f2b9fa23ff8d6e09e5c6ff0cdd02825656740ab7a6703beb911a0",
   "release_ignore_sha256": "5354738fe1f119a2338458d82867f3c411bf616730f45b1091582b01261d76ee",
-  "venus_root": "/Users/cses/.codex/worktrees/wave01-hypothetical-scroll/venus_engine"
+  "venus_root": "/Users/cses/workspace/cses/venus_engine/.claude/worktrees/sdk-v5"
 }

@@ -412,6 +412,65 @@ ItemFailure LayoutParagraphCore(const ParagraphInputView& input,
                     wire::ItemErrorDetail::kParagraphNull);
   }
 
+  // CSS middle uses the wrapper's parent font, independently of child
+  // glyph fallback. Existing Skia baseline shift owns geometry, paint and hits.
+  const auto middle_text = [](const ParagraphRunView& run) {
+    return !run.is_placeholder && !run.is_line_break && run.text_vertical_align == 2u;
+  };
+  if (std::any_of(input.runs.begin(), input.runs.end(), middle_text)) {
+    ParagraphInputView shifted = input;
+    for (auto& run : shifted.runs) {
+      if (!middle_text(run)) continue;
+      if (!run.has_parent_font)
+        return FailItem(wire::ItemStatus::kParagraphBuildFailed,
+                        wire::ErrorFieldId::kSemanticsCombination,
+                        wire::ItemErrorDetail::kUnsupportedCombination);
+      run.text_vertical_align = 0u;
+      if (run.text.empty()) continue;
+      ParagraphInputView own;
+      own.locale = input.locale;
+      own.max_width = std::numeric_limits<double>::infinity();
+      own.soft_wrap = false;
+      own.runs.push_back(run);
+      ParagraphMetrics own_metrics;
+      auto failure = LayoutParagraphCore(own, fonts, impeller_enabled, &own_metrics, nullptr);
+      if (!failure.ok()) return failure;
+      if (own_metrics.lines.size() != 1u)
+        return FailItem(wire::ItemStatus::kParagraphBuildFailed,
+                        wire::ErrorFieldId::kSemanticsCombination,
+                        wire::ItemErrorDetail::kUnsupportedCombination);
+      ParagraphInputView parent;
+      parent.locale = input.locale;
+      parent.max_width = std::numeric_limits<double>::infinity();
+      parent.soft_wrap = false;
+      ParagraphRunView parent_run;
+      parent_run.text = u"x";
+      parent_run.font_family = run.parent_font_family;
+      parent_run.font_size = run.parent_font_size;
+      parent_run.font_weight = run.parent_font_weight;
+      parent_run.italic = run.parent_italic;
+      parent.runs.push_back(std::move(parent_run));
+      ParagraphMetrics parent_metrics;
+      std::unique_ptr<txt::Paragraph> parent_paragraph;
+      failure = LayoutParagraphCore(parent, fonts, impeller_enabled,
+                                    &parent_metrics, &parent_paragraph);
+      if (!failure.ok()) return failure;
+      const auto& lines = parent_paragraph->GetLineMetrics();
+      if (lines.empty() || lines.front().run_metrics.empty())
+        return FailItem(wire::ItemStatus::kParagraphBuildFailed,
+                        wire::ErrorFieldId::kSemanticsCombination,
+                        wire::ItemErrorDetail::kUnsupportedCombination);
+      const double x_height = lines.front().run_metrics.begin()->second.font_metrics.fXHeight;
+      if (!std::isfinite(x_height) || x_height < 0.0)
+        return FailItem(wire::ItemStatus::kParagraphBuildFailed,
+                        wire::ErrorFieldId::kSemanticsCombination,
+                        wire::ItemErrorDetail::kUnsupportedCombination);
+      const auto& line = own_metrics.lines.front();
+      run.baseline_shift = line.baseline - line.height / 2.0 - x_height / 2.0;
+    }
+    return LayoutParagraphCore(shifted, fonts, impeller_enabled, out_metrics, out_paragraph);
+  }
+
   // 非替换 inline 包装盒的 `vertical-align: top / bottom` (公共头 text_vertical_align):
   // 它的盒对齐**最终行盒**上/下沿 (CSS 2.1 §10.8.1), 行盒由其余内容决定。三步:
   //   1. 探针趟: 对齐 run 按比例缩成 0 高 (上/下沿都落在基线上, 不抬行盒), 得每行

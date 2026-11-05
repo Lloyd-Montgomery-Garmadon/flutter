@@ -43,9 +43,11 @@ static_assert(kFlutterVenusV2CapabilityTextVerticalAlignLength == 0x40u);
 static_assert(kFlutterVenusV2CapabilitySignedPlaceholderMetrics == 0x80u);
 static_assert(kFlutterVenusV2CapabilityZeroFontStrut == 0x100u);
 static_assert(kFlutterVenusV2CapabilityFirstLineColor == 0x200u);
-static_assert(kFlutterVenusV2CapabilityKnownMask == 0xffdu);
+static_assert(kFlutterVenusV2CapabilityKnownMask == 0x1ffdu);
 static_assert(kFlutterVenusV2CapabilityInlineEdge == (1u << 11));
 static_assert(kFlutterVenusV2CapabilityAbsoluteLineHeight == (1u << 10));
+static_assert(kFlutterVenusV2CapabilityTextMiddleParentFont == (1u << 12));
+static_assert((kFlutterVenusV2CapabilityKnownMask & (1u << 11)) == (1u << 11));
 // §8 P7 冻结: RequiredSyncWinner = Sync | FontFingerprint。ItemTiming 退出
 // 生产必需集(仍在 KnownMask 内, 是可选能力)。
 static_assert(kFlutterVenusV2CapabilityRequired == 0x09u);
@@ -183,6 +185,10 @@ static_assert(offsetof(FlutterVenusTextLayoutParagraphOutputV2,
                        min_intrinsic_width) == 56u);
 static_assert(offsetof(FlutterVenusTextLayoutParagraphOutputV2,
                        max_intrinsic_width) == 64u);
+static_assert(sizeof(VenusTextParentFontV1) == (kV2Align8 ? 32u : 28u));
+static_assert(offsetof(VenusTextParentFontV1, font_size) == (kV2Align8 ? 24u : 20u));
+static_assert(sizeof(VenusParagraphParentFontsV1) == (kV2Pointer64 ? 24u : 20u));
+static_assert(offsetof(VenusParagraphParentFontsV1, fonts) == 16u);
 using ParagraphV2Fn = int32_t (*)(
     uint64_t, uint32_t, uint64_t,
     const FlutterVenusTextLayoutParagraphInputV2*,
@@ -351,7 +357,8 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     uint64_t lease_token,
     const FlutterVenusTextLayoutParagraphInputV2* input,
     FlutterVenusTextLayoutParagraphOutputV2* output,
-    const VenusParagraphExclusionsV1* exclusions) {
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts) {
   if (output == nullptr) {
     return kFlutterVenusV2InvalidArgument;
   }
@@ -381,7 +388,7 @@ int32_t VenusTextLayoutRegistry::LayoutParagraph(
     service->Retain();
   }
   const ScopedServiceReference retained(service);
-  return service->LayoutParagraph(slot, lease_token, input, output, exclusions);
+  return service->LayoutParagraph(slot, lease_token, input, output, exclusions, parent_fonts);
 }
 
 int32_t VenusTextLayoutRegistry::BeginArtifactOwner(
@@ -464,7 +471,33 @@ void VenusTextLayoutRegistry::ReleaseArtifactOwner(uint64_t engine_id,
                                                                       owner_id);
 }
 
+int32_t VenusTextLayoutRegistry::TrimCaches(uint64_t engine_id,
+                                            uint32_t level) {
+  if (engine_id == 0u) {
+    return kFlutterVenusV2InvalidArgument;
+  }
+  VenusTextLayoutService* service = nullptr;
+  {
+    std::scoped_lock lock(g_registry_mutex);
+    const auto found = g_registry.find(engine_id);
+    if (found == g_registry.end() || found->second.service == nullptr) {
+      return kFlutterVenusV2NotFound;
+    }
+    service = found->second.service;
+    service->Retain();
+  }
+  const ScopedServiceReference retained(service);
+  return service->TrimCaches(level);
+}
+
 }  // namespace flutter
+
+// 缓存清理 —— 独立导出符号, 理由同下。符号不存在 = 引擎没有共享段落缓存可清,
+// 调用方 (venus) 跳过即可。
+extern "C" FLUTTER_EXPORT int32_t
+FlutterVenusTextLayoutTrimCachesV1(uint64_t engine_id, uint32_t level) {
+  return flutter::VenusTextLayoutRegistry::TrimCaches(engine_id, level);
+}
 
 // 段落入口 —— **独立导出符号**, 不进 ApiV2 那张已冻结的函数表。
 // 符号不存在 = 引擎不支持段落粒度, 调用方 (venus) 退回单节点那套。
@@ -489,6 +522,18 @@ FlutterVenusTextLayoutParagraphWithExclusionsV1(
   return flutter::VenusTextLayoutRegistry::LayoutParagraph(
       engine_id, slot, lease_token, exclusions == nullptr ? nullptr : input,
       output, exclusions);
+}
+
+extern "C" FLUTTER_EXPORT int32_t
+FlutterVenusTextLayoutParagraphWithParentFontsV1(
+    uint64_t engine_id, uint32_t slot, uint64_t lease_token,
+    const FlutterVenusTextLayoutParagraphInputV2* input,
+    const VenusParagraphExclusionsV1* exclusions,
+    const VenusParagraphParentFontsV1* parent_fonts,
+    FlutterVenusTextLayoutParagraphOutputV2* output) {
+  return flutter::VenusTextLayoutRegistry::LayoutParagraph(
+      engine_id, slot, lease_token, parent_fonts == nullptr ? nullptr : input,
+      output, exclusions, parent_fonts);
 }
 
 extern "C" FLUTTER_EXPORT int32_t

@@ -1204,6 +1204,9 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   FlutterVenusTextLayoutApiV2 api{};
   ASSERT_EQ(VenusTextLayoutRegistry::GetApi(kEngineId, sizeof(api), &api),
             kFlutterVenusV2Ok);
+  EXPECT_EQ(kFlutterVenusV2CapabilityTextMiddleParentFont, 1u << 12);
+  EXPECT_EQ(api.capabilities, 0x1ff9u);
+  EXPECT_EQ(api.capabilities & (1u << 11), 1u << 11);
   uint32_t slot = 0u;
   uint64_t lease = 0u;
   ASSERT_EQ(api.acquire_slot(api.context, &slot, &lease), kFlutterVenusV2Ok);
@@ -1219,7 +1222,8 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
   const auto lay = [&](double size0, double size1, uint16_t align1,
                        const std::string& text1 = "b",
                        double max_width = 200.0, double line_height = 0.0,
-                       double length = 0.0) {
+                       double length = 0.0, double parent_size = -1.0,
+                       const std::string& parent_family = "Roboto") {
     ParagraphWire w;
     const bool two = size0 > 0.0;
     w.text = (two ? std::string("A") : std::string()) + text1;
@@ -1250,8 +1254,20 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
     w.input.fragment_rect_capacity = 8u;
     w.input.max_width = max_width;
     Laid out;
-    out.status = FlutterVenusTextLayoutParagraphV2(kEngineId, slot, lease,
+    if (parent_size >= 0.0) {
+      const uint32_t offset = static_cast<uint32_t>(w.family.size());
+      w.family += parent_family;
+      w.input.font_families = reinterpret_cast<const uint8_t*>(w.family.data());
+      w.input.font_families_length = static_cast<uint32_t>(w.family.size());
+      VenusTextParentFontV1 font{two ? 1u : 0u, offset,
+          static_cast<uint32_t>(parent_family.size()), 400u, 0u, 0u, parent_size};
+      VenusParagraphParentFontsV1 parents{sizeof(parents), 1u, 1u, 0u, &font};
+      out.status = FlutterVenusTextLayoutParagraphWithParentFontsV1(
+          kEngineId, slot, lease, &w.input, nullptr, &parents, &w.output);
+    } else {
+      out.status = FlutterVenusTextLayoutParagraphV2(kEngineId, slot, lease,
                                                    &w.input, &w.output);
+    }
     out.line = lines[0];
     for (uint32_t i = 0; i < w.output.fragment_rect_count; ++i) {
       const uint32_t which = two ? fragments[i].run_index : 1u;
@@ -1328,6 +1344,64 @@ TEST(VenusTextLayoutParityV2, ParagraphV2TextRunVerticalAlignUsesLineBox) {
 
   // 其余档位 (middle 等) 与非文本 run 上的非 0 值仍是非法参数。
   EXPECT_EQ(lay(40.0, 16.0, 2u).status, kFlutterVenusV2InvalidArgument);
+
+  // The first sibling remains 60px while the actual parent varies. Using
+  // that first run, child font size, or half an em must fail these relations.
+  for (double parent_size : {16.0, 24.0, 32.0}) {
+    for (const std::string& family : {std::string("Roboto"), std::string("MissingParent\x1fRoboto")}) {
+      SCOPED_TRACE(parent_size);
+      SCOPED_TRACE(family);
+      const auto baseline = lay(60.0, 28.0, 0u);
+      const auto middle = lay(60.0, 28.0, 2u, "b", 200.0, 0.0, 0.0, parent_size, family);
+      ASSERT_EQ(middle.status, kFlutterVenusV2Ok);
+      venus_text_layout::ParagraphInputView parent;
+      venus_text_layout::ParagraphRunView font;
+      font.text = u"x";
+      font.font_family = family;
+      font.font_size = parent_size;
+      parent.runs.push_back(font);
+      parent.max_width = 200.0;
+      venus_text_layout::ParagraphMetrics metrics;
+      std::unique_ptr<txt::Paragraph> paragraph;
+      ASSERT_TRUE(venus_text_layout::LayoutParagraphCore(
+          parent, fonts->GetFontCollection(), false, &metrics, &paragraph).ok());
+      const double x_height = paragraph->GetLineMetrics().front().run_metrics.begin()->second.font_metrics.fXHeight;
+      const auto own = lay(0.0, 28.0, 0u);
+      const double shift = own.line.baseline - own.line.height / 2.0 - x_height / 2.0;
+      EXPECT_NEAR(middle.second.top - baseline.second.top, shift, 0.001);
+      EXPECT_NEAR(middle.second.bottom - baseline.second.bottom, shift, 0.001);
+      EXPECT_DOUBLE_EQ(middle.first.top, baseline.first.top);
+    }
+  }
+  {
+    ParagraphWire w;
+    w.run.text_vertical_align = 2u;
+    VenusTextParentFontV1 parent{0u, 0u, static_cast<uint32_t>(w.family.size()), 400u, 0u, 0u, 16.0};
+    VenusParagraphParentFontsV1 parents{sizeof(parents), 1u, 1u, 0u, &parent};
+    struct Bad { const char* name; void (*mutate)(VenusTextParentFontV1&, VenusParagraphParentFontsV1&); };
+    const Bad cases[] = {
+      {"index", [](auto& p, auto&) { p.run_index = 1u; }},
+      {"family range", [](auto& p, auto&) { p.font_family_offset = UINT32_MAX; }},
+      {"nonfinite", [](auto& p, auto&) { p.font_size = std::nan(""); }},
+      {"negative", [](auto& p, auto&) { p.font_size = -1.0; }},
+      {"size limit", [](auto& p, auto&) { p.font_size = 4097.0; }},
+      {"weight", [](auto& p, auto&) { p.font_weight = 1001u; }},
+      {"style", [](auto& p, auto&) { p.font_style = 2u; }},
+      {"reserved", [](auto& p, auto&) { p.reserved = 1u; }},
+      {"missing", [](auto&, auto& p) { p.count = 0u; p.fonts = nullptr; }},
+      {"extra", [](auto&, auto& p) { p.count = 2u; }},
+    };
+    for (const auto& bad : cases) {
+      SCOPED_TRACE(bad.name);
+      auto font = parent; auto sidecar = parents; sidecar.fonts = &font;
+      bad.mutate(font, sidecar);
+      w.output.struct_size = sizeof(w.output);
+      EXPECT_EQ(FlutterVenusTextLayoutParagraphWithParentFontsV1(
+          kEngineId, slot, lease, &w.input, nullptr, &sidecar, &w.output), kFlutterVenusV2InvalidArgument);
+    }
+    EXPECT_EQ(FlutterVenusTextLayoutParagraphWithParentFontsV1(
+        kEngineId, slot, lease, &w.input, nullptr, nullptr, &w.output), kFlutterVenusV2InvalidArgument);
+  }
 
   EXPECT_EQ(api.release_slot(api.context, slot, lease), kFlutterVenusV2Ok);
   api.release_context(api.context);

@@ -27,6 +27,7 @@
 #include "flutter/fml/icu_util.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/shell/common/venus_text_layout_service.h"
+#include "third_party/skia/modules/skparagraph/include/ParagraphCache.h"  // nogncheck
 
 namespace {
 
@@ -69,10 +70,15 @@ struct NodeBuilder {
                                       bool* out_expect_failure) {
     *out_expect_failure = false;
     const bool unique = Contains(options.mix, "unique");
+    // churn: six texts cycle, so with a small shared paragraph cache every
+    // insert evicts a value other threads are still hitting and copying.
+    const bool churn = Contains(options.mix, "churn");
     const bool malformed =
         Contains(options.mix, "malformed") && (iteration % 97u == 96u);
     if (unique) {
       scratch = warm_text + " #" + std::to_string(iteration);
+    } else if (churn) {
+      scratch = warm_text + " #" + std::to_string(iteration % 6u);
     } else {
       scratch = warm_text;
     }
@@ -214,6 +220,10 @@ int main(int argc, char** argv) {
   }
   const bool interleave_fontreload = Contains(options.interleave, "fontreload");
   const bool interleave_shutdown = Contains(options.interleave, "shutdown");
+  // trim: the main thread keeps emptying the shared paragraph cache while the
+  // load threads hit it (detached nodes die outside the lock; a worker still
+  // copying one holds its own reference).
+  const bool interleave_trim = Contains(options.interleave, "trim");
 
   std::vector<std::thread> workers;
   for (uint32_t index = 0; index < options.threads; ++index) {
@@ -297,19 +307,25 @@ int main(int argc, char** argv) {
   // threads keep going. font reload must leave the worker count restored,
   // otherwise every later submit would report NotReady and the run would look
   // "quiescent" while doing nothing at all.
-  if (interleave_fontreload || interleave_shutdown) {
-    for (int round = 0; round < 4; ++round) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  if (interleave_fontreload || interleave_shutdown || interleave_trim) {
+    const int rounds = interleave_trim ? 200 : 4;
+    const auto pause = std::chrono::milliseconds(interleave_trim ? 10 : 50);
+    for (int round = 0; round < rounds; ++round) {
+      std::this_thread::sleep_for(pause);
       if (MonotonicNs() > deadline_ns) {
         break;
       }
-      if (interleave_fontreload) {
+      if (interleave_fontreload && (!interleave_trim || round % 50 == 0)) {
         // 静默点含 leased_slots == 0：负载线程整轮只取一次 lease，所以这一步
         // 会一直等到它们跑完才返回。这是设计使然，不是卡住。
         if (service->ReloadFonts() != kFlutterVenusV2Ok) {
           stalled.store(true);
           break;
         }
+      }
+      if (interleave_trim && service->TrimCaches(1u) != kFlutterVenusV2Ok) {
+        stalled.store(true);
+        break;
       }
     }
   }
@@ -368,6 +384,26 @@ int main(int argc, char** argv) {
     fprintf(stderr, "FAIL: deadline exceeded or a call was rejected\n");
     DumpCounters(stderr, counters);
     fprintf(stderr, "\n");
+  }
+  {
+    // worker 共享段落缓存的读数（stderr，不进 JSON schema）。任何一份新克隆
+    // 门面都指向当前字体代的那一份。
+    skia::textlayout::ParagraphCache::VenusStats pc;
+    fonts->GetFontCollection()
+        ->CloneForVenusWorker(nullptr)
+        ->CreateSktFontCollection()
+        ->getParagraphCache()
+        ->venusGetStats(&pc);
+    fprintf(stderr,
+            "[pcache] shared=%d cap=%d budget=%llu req=%llu hit=%llu miss=%llu "
+            "skip=%llu ins=%llu evicted=%llu evicted_bytes=%llu n=%d bytes=%llu\n",
+            pc.shared ? 1 : 0, pc.maxEntries,
+            (unsigned long long)pc.byteBudget, (unsigned long long)pc.requests,
+            (unsigned long long)pc.hits, (unsigned long long)pc.misses,
+            (unsigned long long)pc.editingSkips, (unsigned long long)pc.inserts,
+            (unsigned long long)pc.evictedCount,
+            (unsigned long long)pc.evictedBytes, pc.count,
+            (unsigned long long)pc.bytes);
   }
   service->Shutdown();
   api.release_context(api.context);

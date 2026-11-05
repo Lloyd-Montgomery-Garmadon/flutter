@@ -50,7 +50,8 @@ class VenusTextLayoutService final {
       uint64_t token,
       const FlutterVenusTextLayoutParagraphInputV2* input,
       FlutterVenusTextLayoutParagraphOutputV2* output,
-      const VenusParagraphExclusionsV1* exclusions = nullptr);
+      const VenusParagraphExclusionsV1* exclusions = nullptr,
+      const VenusParagraphParentFontsV1* parent_fonts = nullptr);
 
   int32_t BeginArtifactOwner(uint64_t expected_registration_generation,
                              uint64_t producer_generation,
@@ -74,6 +75,11 @@ class VenusTextLayoutService final {
   // -> 恢复 accepting。重建 FontCollection 之前必须确认没有任何持有者还占着 slot，
   // 否则会在别人正在用的对象上做替换。
   int32_t ReloadFonts();
+
+  // 页面退出 / 内存压力：清空 worker 门面共用的段落缓存（见
+  // txt::FontCollection::VenusTrimSharedParagraphCache）。level 0 无操作；
+  // ≥1 清缓存。不动 slot、lease 与 ParagraphStore，与排版并发安全。
+  int32_t TrimCaches(uint32_t level);
 
  private:
   ~VenusTextLayoutService();

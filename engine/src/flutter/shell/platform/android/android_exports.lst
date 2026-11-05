@@ -23,10 +23,16 @@
     # 长得跟"引擎不支持段落粒度"一模一样 —— venus 会一声不响地退回单节点那套,
     # 探针里 paragraph_measured/fallbacks 双 0 (2026-08-28 实测踩过)。
     FlutterVenusTextLayoutParagraphV2;
+    # venus 对带浮动排除区的段落走 dlsym 取这个符号 (text_layout_api_registry.cpp)。
+    FlutterVenusTextLayoutParagraphWithExclusionsV1;
+    FlutterVenusTextLayoutParagraphWithParentFontsV1;
     FlutterVenusTextLayoutArtifactOwnerBeginV1;
     FlutterVenusTextLayoutArtifactOwnerBindSlotV1;
     FlutterVenusTextLayoutArtifactOwnerSealV1;
     FlutterVenusTextLayoutArtifactOwnerReleaseV1;
+    # 共享段落缓存清理 (页面退出 / 内存压力)。同上: 不加这一行 venus 会把
+    # "取不到符号"当成"引擎没这份缓存"而静默跳过。
+    FlutterVenusTextLayoutTrimCachesV1;
   local:
     *;
 };
