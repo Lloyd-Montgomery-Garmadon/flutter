@@ -97,6 +97,14 @@ class FontCollection : public std::enable_shared_from_this<FontCollection> {
   mutable std::shared_ptr<skia::textlayout::ParagraphCache> venus_shared_pcache_;
   mutable uint64_t venus_shared_pcache_epoch_ = 0u;
 
+  // Venus worker 门面共用的字重变体表（skparagraph cloneTypeface），与上面的段落
+  // 缓存同一生命周期：一代字体一张表，所有 worker 克隆同字体同字重只克隆一个字体对象
+  // （一份 FreeType 面与可变字体数据）。UI 线程的 skt_collection_ 不参与，保持官版。
+  mutable std::shared_ptr<
+      skia::textlayout::FontCollection::VenusSharedVariationCache>
+      venus_shared_vcache_;
+  mutable uint64_t venus_shared_vcache_epoch_ = 0u;
+
   std::vector<sk_sp<SkFontMgr>> GetFontManagerOrder() const;
 
   FML_DISALLOW_COPY_AND_ASSIGN(FontCollection);

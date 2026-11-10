@@ -187,8 +187,15 @@ std::shared_ptr<FontCollection> FontCollection::CloneForVenusWorker(
         kVenusSharedParagraphCacheByteBudget);
     venus_shared_pcache_epoch_ = venus_font_epoch_;
   }
-  clone->CreateSktFontCollection()->setVenusSharedParagraphCache(
-      venus_shared_pcache_);
+  if (!venus_shared_vcache_ ||
+      venus_shared_vcache_epoch_ != venus_font_epoch_) {
+    venus_shared_vcache_ =
+        skia::textlayout::FontCollection::MakeVenusSharedVariationCache();
+    venus_shared_vcache_epoch_ = venus_font_epoch_;
+  }
+  const auto skt_clone = clone->CreateSktFontCollection();
+  skt_clone->setVenusSharedParagraphCache(venus_shared_pcache_);
+  skt_clone->setVenusSharedVariationCache(venus_shared_vcache_);
   if (out_font_epoch != nullptr) {
     *out_font_epoch = venus_font_epoch_;
   }
