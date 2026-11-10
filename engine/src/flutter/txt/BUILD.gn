@@ -120,6 +120,7 @@ if (enable_unittests) {
     fixtures = [
       "third_party/fonts/Roboto-Regular.ttf",
       "third_party/fonts/NotoColorEmoji.ttf",
+      "third_party/fonts/RobotoSlab-VariableFont_wght.ttf",
     ]
 
     if (host_os == "mac") {
