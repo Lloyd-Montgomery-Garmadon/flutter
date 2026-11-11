@@ -14,9 +14,9 @@ vars = {
   'dart_git': 'https://dart.googlesource.com',
   'flutter_git': 'https://flutter.googlesource.com',
   'skia_git': 'https://skia.googlesource.com',
-  # Venus：SkParagraph 补丁以 Venus 自己的 Skia fork 为唯一来源（与 flutter 仓库同级）。
-  # 历史补丁线见该仓库 migration/* 标签；venus/main 为最新累积状态。
-  'venus_skia_git': 'file:///Users/cses/workspace/cses/venus/skia',
+  # Venus：SkParagraph 补丁以 Venus 自己的 Skia fork 为唯一来源（GitHub，gclient sync 自动拉取）。
+  # 分支 venus/flutter-3.44.9 = Flutter 3.44.9 配的 e9ed4fc9 + Venus 补丁；历史补丁线见 migration/* 标签。
+  'venus_skia_git': 'https://github.com/Lloyd-Montgomery-Garmadon/skia.git',
   'llvm_git': 'https://llvm.googlesource.com',
   'skia_revision': '18379d72fd543fc7a23d66e0264c8272793d2dda',
 
