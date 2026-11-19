@@ -386,6 +386,10 @@ class IOSCoreDeviceControl {
     try {
       process = await _processUtils.start(command);
 
+      // A full pipe can prevent devicectl from exiting. Observe errors even when canceled.
+      final Future<String> stdoutFuture = utf8.decodeStream(process.stdout)..ignore();
+      final Future<String> stderrFuture = utf8.decodeStream(process.stderr)..ignore();
+
       final Future<void> cancelFuture = cancelCompleter?.future ?? Completer<void>().future;
       final Future<dynamic> firstCompleted = Future.any<dynamic>(<Future<dynamic>>[
         process.exitCode,
@@ -399,8 +403,8 @@ class IOSCoreDeviceControl {
       }
 
       final int exitCode = await process.exitCode;
-      final String stdout = await utf8.decodeStream(process.stdout);
-      final String stderr = await utf8.decodeStream(process.stderr);
+      final String stdout = await stdoutFuture;
+      final String stderr = await stderrFuture;
 
       var isToolPossiblyShutdown = false;
       if (_fileSystem is ErrorHandlingFileSystem) {

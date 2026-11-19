@@ -2823,6 +2823,49 @@ invalid JSON
     });
 
     group('list devices', () {
+      testWithoutContext('Drains both devicectl pipes before waiting for exit', () async {
+        final File tempFile = fileSystem.systemTempDirectory
+            .childDirectory('core_devices.rand0')
+            .childFile('core_device_list.json');
+        final canExit = Completer<void>();
+        var listeners = 0;
+        Stream<List<int>> pipe(String message) => Stream<List<int>>.multi((controller) {
+          controller.add(message.codeUnits);
+          controller.close();
+          if (++listeners == 2) {
+            canExit.complete();
+          }
+        });
+        fakeProcessManager.addCommand(
+          FakeCommand(
+            command: <String>[
+              'xcrun',
+              'devicectl',
+              'list',
+              'devices',
+              '--timeout',
+              '5',
+              '--json-output',
+              tempFile.path,
+            ],
+            process: _ProcessWithPipes(
+              stdout: pipe('stdout message'),
+              stderr: pipe('stderr message'),
+              completer: canExit,
+            ),
+          ),
+        );
+
+        final Future<List<IOSCoreDevice>> devices = deviceControl.getCoreDevices();
+        await pumpEventQueue();
+        expect(canExit.isCompleted, isTrue);
+        await expectLater(devices, completion(isEmpty));
+        expect(logger.traceText, contains('devicectl stdout:\nstdout message'));
+        expect(logger.traceText, contains('devicectl stderr:\nstderr message'));
+        expect(tempFile, isNot(exists));
+        expect(fakeProcessManager, hasNoRemainingExpectations);
+      });
+
       testWithoutContext('Handles FileSystemException deleting temp directory', () async {
         final Directory tempDir = fileSystem.systemTempDirectory.childDirectory(
           'core_devices.rand0',
@@ -4115,6 +4158,16 @@ class FakeIosProject extends Fake implements IosProject {
 }
 
 class FakeTemplateRenderer extends Fake implements TemplateRenderer {}
+
+class _ProcessWithPipes extends FakeProcess {
+  _ProcessWithPipes({required this.stdout, required this.stderr, required super.completer})
+    : super(exitCode: 1);
+
+  @override
+  final Stream<List<int>> stdout;
+  @override
+  final Stream<List<int>> stderr;
+}
 
 class FakeIOSCoreDeviceLogForwarder extends Fake implements IOSCoreDeviceLogForwarder {
   List<String> logs = [];
